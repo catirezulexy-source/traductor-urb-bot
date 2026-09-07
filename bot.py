@@ -1,131 +1,111 @@
 import os
 import threading
-import unicodedata
 from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
-from google import genai
-
-# Forzar codificación UTF-8 en el entorno
-os.environ["PYTHONIOENCODING"] = "utf-8"
 
 app_flask = Flask(__name__)
 
 @app_flask.route('/')
 def home():
-    return "🤖 Bot activo y funcionando correctamente."
+    return "🤖 Bot Asistente Activo."
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app_flask.run(host="0.0.0.0", port=port)
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-client = genai.Client(api_key=GEMINI_API_KEY)
+# --- COMANDOS ---
 
-SYSTEM_PROMPT = """
-Eres un asistente ejecutivo (secretario) altamente competente.
-Tu tarea es ayudar al usuario a traducir textos a la perfección.
-Si el usuario envía un texto sin especificar idioma, tradúcelo al español de forma natural y profesional.
-"""
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    mensaje = (
+        "🤖 *Bienvenido a tu Asistente Local*\n\n"
+        "Comandos disponibles:\n"
+        "• /mayus <texto> - Convierte texto a MAYÚSCULAS\n"
+        "• /minus <texto> - Convierte texto a minúsculas\n"
+        "• /calc <operación> - Realiza cálculos matemáticos\n"
+        "• /convertir <monto> <de> <a_moneda> - Conversor básico\n"
+        "• /plantilla <tipo> - Genera plantillas (correo, reunion, nota)"
+    )
+    await update.message.reply_text(mensaje, parse_mode="Markdown")
 
-def clean_text(text: str) -> str:
-    """Remueve caracteres invisibles de formato Unicode (\u200e, etc.) y normaliza a UTF-8."""
-    if not text:
-        return ""
-    text = unicodedata.normalize("NFKC", str(text))
-    return "".join(c for c in text if unicodedata.category(c) != "Cf").strip()
+async def mayus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = " ".join(context.args) if context.args else ""
+    if not user_text:
+        await update.message.reply_text("Escribe el texto a convertir. Ejemplo: /mayus hola mundo")
+        return
+    await update.message.reply_text(user_text.upper())
+
+async def minus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = " ".join(context.args) if context.args else ""
+    if not user_text:
+        await update.message.reply_text("Escribe el texto a convertir. Ejemplo: /minus HOLA MUNDO")
+        return
+    await update.message.reply_text(user_text.lower())
+
+async def calc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    expr = " ".join(context.args) if context.args else ""
+    if not expr:
+        await update.message.reply_text("Escribe una operación. Ejemplo: /calc (50+20)*2")
+        return
+
+    try:
+        caracteres_permitidos = "0123456789+-*/(). "
+        if any(c not in caracteres_permitidos for c in expr):
+            raise ValueError
+        resultado = eval(expr)
+        await update.message.reply_text(f"🔢 *Resultado:* {resultado}", parse_mode="Markdown")
+    except Exception:
+        await update.message.reply_text("Operación matemática no válida.")
+
+async def convertir_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Ejemplo sencillo: conversión de unidades / monedas con tasa fija orientativa
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "Formato no válido. Usa: `/convertir <monto> <de> <a_moneda>`\n"
+            "Ejemplo: `/convertir 100 usd eur` o `/convertir 50 eur usd`",
+            parse_mode="Markdown"
+        )
+        return
+
+    try:
+        monto = float(context.args[0])
+        de = context.args[1].lower()
+        a = context.args[2].lower()
+
+        # Tasas de referencia fijas
+        tasas = {
+            ("usd", "eur"): 0.92,
+            ("eur", "usd"): 1.09,
+            ("usd", "mxn"): 18.0,
+            ("mxn", "usd"): 0.055,
+        }
+
+        tasa = tasas.get((de, a))
+        if tasa:
+            total = round(monto * tasa, 2)
+            await update.message.reply_text(f"💱 *Conversión:* {monto} {de.upper()} = {total} {a.upper()}", parse_mode="Markdown")
+        else:
+            await update.message.reply_text("Par de conversión no soportado de forma local. Prueba USD/EUR o USD/MXN.")
+    except ValueError:
+        await update.message.reply_text("El monto ingresado debe ser un número válido.")
+
+async def plantilla_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tipo = context.args[0].lower() if context.args else ""
+    plantillas = {
+        "correo": "Estimado/a [Nombre],\n\nEspero que se encuentre bien. Le escribo para...\n\nAtentamente,\n[Tu Nombre]",
+        "reunion": "📋 *Minuta de Reunión*\n- Fecha:\n- Asistentes:\n- Puntos clave:\n- Acuerdos:",
+        "nota": "📌 *Nota Ejecutiva*\n- Asunto:\n- Detalle:\n- Prioridad:"
+    }
+    if tipo in plantillas:
+        await update.message.reply_text(plantillas[tipo], parse_mode="Markdown")
+    else:
+        await update.message.reply_text("Usa: `/plantilla correo`, `/plantilla reunion` o `/plantilla nota`", parse_mode="Markdown")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
-
-    user_text = clean_text(update.message.text)
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-
-    try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=f"{SYSTEM_PROMPT}\n\nTexto a procesar:\n{user_text}"
-        )
-        reply_text = clean_text(response.text)
-    except Exception:
-        reply_text = "Disculpe, jefe. Ocurrió un error al procesar la solicitud con la IA."
-
-    await update.message.reply_text(reply_text)
-
-async def ia_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
-
-    raw_text = " ".join(context.args) if context.args else ""
-    user_text = clean_text(raw_text)
-
-    if not user_text:
-        await update.message.reply_text("Por favor, escriba su pregunta después del comando.")
-        return
-
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-
-    try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=f"Responde de manera clara, profesional y directa:\n{user_text}"
-        )
-        reply_text = clean_text(response.text)
-    except Exception:
-        reply_text = "Disculpe, jefe. Ocurrió un error al procesar su consulta."
-
-    await update.message.reply_text(reply_text)
-
-async def redactar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
-
-    raw_text = " ".join(context.args) if context.args else ""
-    user_text = clean_text(raw_text)
-
-    if not user_text:
-        await update.message.reply_text("Por favor, escriba el texto que desea corregir.")
-        return
-
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-
-    try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=f"Mejora la ortografía y redacción de este texto:\n{user_text}"
-        )
-        reply_text = clean_text(response.text)
-    except Exception:
-        reply_text = "Disculpe, jefe. Ocurrió un error al redactar el texto."
-
-    await update.message.reply_text(reply_text)
-
-async def resumir_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
-
-    raw_text = " ".join(context.args) if context.args else ""
-    user_text = clean_text(raw_text)
-
-    if not user_text:
-        await update.message.reply_text("Por favor, pegue el texto que desea resumir.")
-        return
-
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-
-    try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=f"Resume extrayendo los puntos clave:\n{user_text}"
-        )
-        reply_text = clean_text(response.text)
-    except Exception:
-        reply_text = "Disculpe, jefe. Ocurrió un error al resumir el texto."
-
-    await update.message.reply_text(reply_text)
+    if update.message and update.message.text:
+        await update.message.reply_text("Usa /start para ver las herramientas disponibles.")
 
 def main():
     flask_thread = threading.Thread(target=run_flask)
@@ -134,9 +114,12 @@ def main():
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    app.add_handler(CommandHandler("ia", ia_command))
-    app.add_handler(CommandHandler("redactar", redactar_command))
-    app.add_handler(CommandHandler("resumir", resumir_command))
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("mayus", mayus_command))
+    app.add_handler(CommandHandler("minus", minus_command))
+    app.add_handler(CommandHandler("calc", calc_command))
+    app.add_handler(CommandHandler("convertir", convertir_command))
+    app.add_handler(CommandHandler("plantilla", plantilla_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.run_polling()
