@@ -1,12 +1,25 @@
 import os
+import threading
+from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from google import genai
 
+# Servidor Flask falso para satisfacer el puerto de Render
+app_flask = Flask(__name__)
+
+@app_flask.route('/')
+def home():
+    return "🤖 Bot de Telegram activo y funcionando correctamente."
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app_flask.run(host="0.0.0.0", port=port)
+
+# Credenciales y cliente de Telegram / Gemini
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# Inicializar cliente de Gemini correctamente
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 SYSTEM_PROMPT = """
@@ -29,7 +42,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         reply_text = response.text
     except Exception as e:
-        reply_text = f"Error técnico: {str(e)}"
+        reply_text = f"Disculpe, jefe. Ocurrió un error: {str(e)}"
 
     await update.message.reply_text(reply_text)
 
@@ -51,7 +64,7 @@ async def ia_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         reply_text = response.text
     except Exception as e:
-        reply_text = f"Error técnico: {str(e)}"
+        reply_text = f"Disculpe, jefe. Ocurrió un error: {str(e)}"
 
     await update.message.reply_text(reply_text)
 
@@ -73,7 +86,7 @@ async def redactar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         reply_text = response.text
     except Exception as e:
-        reply_text = f"Error técnico: {str(e)}"
+        reply_text = f"Disculpe, jefe. Ocurrió un error: {str(e)}"
 
     await update.message.reply_text(reply_text)
 
@@ -95,11 +108,17 @@ async def resumir_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         reply_text = response.text
     except Exception as e:
-        reply_text = f"Error técnico: {str(e)}"
+        reply_text = f"Disculpe, jefe. Ocurrió un error: {str(e)}"
 
     await update.message.reply_text(reply_text)
 
 def main():
+    # Iniciar Flask en un hilo separado para abrir el puerto web que exige Render
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+
+    # Iniciar el bot de Telegram
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     
     app.add_handler(CommandHandler("ia", ia_command))
@@ -107,7 +126,7 @@ def main():
     app.add_handler(CommandHandler("resumir", resumir_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("🤖 Bot secretario con comandos en línea.")
+    print("🤖 Bot secretario con Flask integrado iniciado.")
     app.run_polling()
 
 if __name__ == "__main__":
