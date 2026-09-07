@@ -67,12 +67,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     elif texto == "📝 /nota" or texto == "/nota":
-        ESTADOS_USUARIO[user_id] = "esperando_nota"
         nota_actual = NOTAS_USUARIOS.get(user_id, "No tienes notas guardadas aún.")
+        ESTADOS_USUARIO[user_id] = "esperando_nota"
         await update.message.reply_text(
-            f"📝 *Tus notas actuales:*\n{nota_actual}\n\n"
-            "Escribe el nuevo texto que deseas guardar como tu nota:",
-            parse_mode="Markdown"
+            f"📝 *Tu nota actual:*\n{nota_actual}\n\n"
+            "Escribe el nuevo texto que deseas guardar (esto reemplazará la nota anterior):",
+            parse_mode="Markdown",
+            reply_markup=obtener_teclado_principal()
         )
         return
 
@@ -99,7 +100,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ESTADOS_USUARIO[user_id] = None
         NOTAS_USUARIOS[user_id] = texto
         await update.message.reply_text(
-            "✅ *¡Nota guardada con éxito!* Puedes consultarla cuando quieras tocando el botón de notas.",
+            "✅ *¡Nota guardada con éxito!* Toca de nuevo `/nota` cuando quieras consultarla.",
             parse_mode="Markdown",
             reply_markup=obtener_teclado_principal()
         )
