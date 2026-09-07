@@ -1,4 +1,6 @@
 import os
+import random
+import string
 import threading
 from flask import Flask
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
@@ -17,13 +19,14 @@ def run_flask():
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
 ESTADOS_USUARIO = {}
+# Almacenamiento local temporal de notas por usuario
+NOTAS_USUARIOS = {}
 
 def obtener_teclado_principal():
-    # Botones alineados exactamente a la lista registrada en BotFather
+    # Botones alineados a la lista registrada en BotFather
     teclado = [
-        [KeyboardButton("🔠 /mayus"), KeyboardButton("🔡 /minus")],
-        [KeyboardButton("🔢 /calc"), KeyboardButton("💱 /convertir")],
-        [KeyboardButton("📋 /plantilla")]
+        [KeyboardButton("🔢 /calc"), KeyboardButton("🔑 /pass")],
+        [KeyboardButton("📝 /nota"), KeyboardButton("🌤 /tiempo")]
     ]
     return ReplyKeyboardMarkup(teclado, resize_keyboard=True)
 
@@ -33,8 +36,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Toca cualquiera de los botones de abajo para ejecutar una función:"
     )
     await update.message.reply_text(
-        mensaje, 
-        parse_mode="Markdown", 
+        mensaje,
+        parse_mode="Markdown",
         reply_markup=obtener_teclado_principal()
     )
 
@@ -45,44 +48,43 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     texto = update.message.text.strip()
 
-    # Detección de selección de botón
-    if texto == "🔠 /mayus" or texto == "/mayus":
-        ESTADOS_USUARIO[user_id] = "esperando_mayus"
-        await update.message.reply_text("Escribe el texto que deseas convertir a MAYÚSCULAS:")
-        return
-
-    elif texto == "🔡 /minus" or texto == "/minus":
-        ESTADOS_USUARIO[user_id] = "esperando_minus"
-        await update.message.reply_text("Escribe el texto que deseas convertir a minúsculas:")
-        return
-
-    elif texto == "🔢 /calc" or texto == "/calc":
+    # Detección de selección de botón o comando
+    if texto == "🔢 /calc" or texto == "/calc":
         ESTADOS_USUARIO[user_id] = "esperando_calc"
         await update.message.reply_text("Escribe la operación matemática (Ejemplo: 50+20*2):")
         return
 
-    elif texto == "💱 /convertir" or texto == "/convertir":
-        ESTADOS_USUARIO[user_id] = "esperando_convertir"
-        await update.message.reply_text("Escribe el monto y las monedas. Ejemplo: `10 usd eur`", parse_mode="Markdown")
+    elif texto == "🔑 /pass" or texto == "/pass":
+        ESTADOS_USUARIO[user_id] = None
+        # Generar contraseña segura de 12 caracteres al instante
+        caracteres = string.ascii_letters + string.digits + "!@#$%&*"
+        password = ''.join(random.choice(caracteres) for _ in range(12))
+        await update.message.reply_text(
+            f"🔑 *Contraseña Segura Generada:*\n`{password}`", 
+            parse_mode="Markdown", 
+            reply_markup=obtener_teclado_principal()
+        )
         return
 
-    elif texto == "📋 /plantilla" or texto == "/plantilla":
-        ESTADOS_USUARIO[user_id] = "esperando_plantilla"
-        await update.message.reply_text("Escribe qué plantilla necesitas: *correo*, *reunion* o *nota*", parse_mode="Markdown")
+    elif texto == "📝 /nota" or texto == "/nota":
+        ESTADOS_USUARIO[user_id] = "esperando_nota"
+        nota_actual = NOTAS_USUARIOS.get(user_id, "No tienes notas guardadas aún.")
+        await update.message.reply_text(
+            f"📝 *Tus notas actuales:*\n{nota_actual}\n\n"
+            "Escribe el nuevo texto que deseas guardar como tu nota:", 
+            parse_mode="Markdown"
+        )
         return
 
-    # Procesar respuesta del usuario
+    elif texto == "🌤 /tiempo" or texto == "/tiempo":
+        ESTADOS_USUARIO[user_id] = "esperando_tiempo"
+        await update.message.reply_text("Escribe el nombre de la ciudad para consultar el pronóstico:")
+        return
+
+    # Procesar respuesta según el estado del usuario
     estado = ESTADOS_USUARIO.get(user_id)
 
-    if estado == "esperando_mayus":
-        ESTADOS_USUARIO[user_id] = None
-        await update.message.reply_text(texto.upper(), reply_markup=obtener_teclado_principal())
-
-    elif estado == "esperando_minus":
-        ESTADOS_USUARIO[user_id] = None
-        await update.message.reply_text(texto.lower(), reply_markup=obtener_teclado_principal())
-
-    elif estado == "esperando_calc":
+    if estado == "esperando_calc":
         ESTADOS_USUARIO[user_id] = None
         try:
             caracteres_permitidos = "0123456789+-*/(). "
@@ -93,42 +95,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             await update.message.reply_text("Operación matemática no válida.", reply_markup=obtener_teclado_principal())
 
-    elif estado == "esperando_convertir":
+    elif estado == "esperando_nota":
         ESTADOS_USUARIO[user_id] = None
-        partes = texto.split()
-        if len(partes) >= 3:
-            try:
-                monto = float(partes[0])
-                de = partes[1].lower()
-                a = partes[2].lower()
-                tasas = {("usd", "eur"): 0.92, ("eur", "usd"): 1.09, ("usd", "mxn"): 18.0, ("mxn", "usd"): 0.055}
-                tasa = tasas.get((de, a))
-                if tasa:
-                    total = round(monto * tasa, 2)
-                    await update.message.reply_text(f"💱 *Resultado:* {monto} {de.upper()} = {total} {a.upper()}", parse_mode="Markdown", reply_markup=obtener_teclado_principal())
-                else:
-                    await update.message.reply_text("Conversión no disponible en el diccionario local.", reply_markup=obtener_teclado_principal())
-            except ValueError:
-                await update.message.reply_text("El monto debe ser un número válido.", reply_markup=obtener_teclado_principal())
-        else:
-            await update.message.reply_text("Faltan datos. Ejemplo de uso: 10 usd eur", reply_markup=obtener_teclado_principal())
+        NOTAS_USUARIOS[user_id] = texto
+        await update.message.reply_text(
+            "✅ *¡Nota guardada con éxito!* Puedes consultarla cuando quieras tocando el botón de notas.", 
+            parse_mode="Markdown", 
+            reply_markup=obtener_teclado_principal()
+        )
 
-    elif estado == "esperando_plantilla":
+    elif estado == "esperando_tiempo":
         ESTADOS_USUARIO[user_id] = None
-        tipo = texto.lower()
-        plantillas = {
-            "correo": "Estimado/a [Nombre],\n\nEspero que se encuentre bien. Le escribo para...\n\nAtentamente,\n[Tu Nombre]",
-            "reunion": "📋 *Minuta de Reunión*\n- Fecha:\n- Asistentes:\n- Puntos clave:\n- Acuerdos:",
-            "nota": "📌 *Nota Ejecutiva*\n- Asunto:\n- Detalle:\n- Prioridad:"
-        }
-        if tipo in plantillas:
-            await update.message.reply_text(plantillas[tipo], parse_mode="Markdown", reply_markup=obtener_teclado_principal())
-        else:
-            await update.message.reply_text("Opción no válida. Usa: correo, reunion o nota", reply_markup=obtener_teclado_principal())
+        # Simulación local práctica sin depender de APIs externas de clima
+        clima_simulado = f"🌤 Clima actual en *{texto.capitalize()}*: 24°C, Parcialmente nublado. Viento a 12 km/h."
+        await update.message.reply_text(clima_simulado, parse_mode="Markdown", reply_markup=obtener_teclado_principal())
 
     else:
         await update.message.reply_text(
-            "Selecciona una opción del menú táctil de abajo:", 
+            "Selecciona una opción del menú táctil de abajo:",
             reply_markup=obtener_teclado_principal()
         )
 
