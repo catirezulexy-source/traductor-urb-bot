@@ -70,9 +70,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nota_actual = NOTAS_USUARIOS.get(user_id, "No tienes notas guardadas aún.")
         ESTADOS_USUARIO[user_id] = "esperando_nota"
         await update.message.reply_text(
-            f"📝 *Tu nota actual:*\n{nota_actual}\n\n"
-            "Escribe el nuevo texto que deseas guardar (esto reemplazará la nota anterior):",
-            parse_mode="Markdown",
+            f"📝 Tu nota actual:\n{nota_actual}\n\nEscribe el nuevo texto que deseas guardar (esto reemplazará la nota anterior):",
             reply_markup=obtener_teclado_principal()
         )
         return
