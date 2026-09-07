@@ -1,42 +1,113 @@
+cat << 'EOF' > bot.py
 import os
 from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from google import genai
 
-# Credenciales leídas de forma segura desde las variables de entorno de la nube
+# Credenciales leídas de forma segura desde las variables de entorno
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
+# Prompt original del secretario / traductor automático
 SYSTEM_PROMPT = """
-Eres un asistente ejecutivo (secretario) altamente eficiente, profesional y políglota, especializado en traducción simultánea y gestión de comunicaciones globales.
-Tu tarea es ayudar al usuario a traducir textos a cualquier idioma de forma impecable.
-Si el usuario envía un texto sin especificar idioma de destino, tradúcelo al español si está en otro idioma, o al inglés si está en español, manteniendo un tono formal, claro y ejecutivo. Organiza la respuesta de forma limpia y profesional.
+Eres un asistente ejecutivo (secretario) altamente competente.
+Tu tarea es ayudar al usuario a traducir textos a la perfección.
+Si el usuario envía un texto sin especificar idioma, tradúcelo al español de forma natural y profesional.
 """
 
+# 1. Manejador para mensajes de texto normales (Traductor automático)
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
-    
+
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
     try:
         response = client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=f"{SYSTEM_PROMPT}\n\nTexto del usuario a procesar:\n{user_text}"
+            contents=f"{SYSTEM_PROMPT}\n\nTexto a procesar:\n{user_text}"
         )
         reply_text = response.text
     except Exception as e:
-        reply_text = f"Disculpe, jefe. Ocurrió un error al procesar la traducción: {str(e)}"
+        reply_text = "Disculpe, jefe. Ocurrió un error al procesar su solicitud."
+
+    await update.message.reply_text(reply_text)
+
+# 2. Comando /ia: Preguntas generales a la IA
+async def ia_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = " ".join(context.args)
+    if not user_text:
+        await update.message.reply_text("Por favor, escriba su pregunta después del comando. Ejemplo: /ia ¿Qué hora es?")
+        return
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=f"Responde de manera clara, profesional y directa a la siguiente consulta:\n{user_text}"
+        )
+        reply_text = response.text
+    except Exception as e:
+        reply_text = "Disculpe, jefe. Ocurrió un error al procesar su consulta."
+
+    await update.message.reply_text(reply_text)
+
+# 3. Comando /redactar: Corregir ortografía y redactar
+async def redactar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = " ".join(context.args)
+    if not user_text:
+        await update.message.reply_text("Por favor, escriba o pegue el texto que desea corregir o redactar.")
+        return
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=f"Mejora la ortografía, redacción y dale un tono profesional y natural al siguiente texto:\n{user_text}"
+        )
+        reply_text = response.text
+    except Exception as e:
+        reply_text = "Disculpe, jefe. Ocurrió un error al procesar la redacción."
+
+    await update.message.reply_text(reply_text)
+
+# 4. Comando /resumir: Resumir textos largos
+async def resumir_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = " ".join(context.args)
+    if not user_text:
+        await update.message.reply_text("Por favor, pegue el texto largo que desea que resuma.")
+        return
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=f"Resume el siguiente texto extrayendo los puntos clave de manera clara y concisa:\n{user_text}"
+        )
+        reply_text = response.text
+    except Exception as e:
+        reply_text = "Disculpe, jefe. Ocurrió un error al procesar el resumen."
 
     await update.message.reply_text(reply_text)
 
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+    
+    # Registrar comandos específicos
+    app.add_handler(CommandHandler("ia", ia_command))
+    app.add_handler(CommandHandler("redactar", redactar_command))
+    app.add_handler(CommandHandler("resumir", resumir_command))
 
-    print("🤖 Bot secretario en línea.")
+    # Registrar el manejador de mensajes de texto general (excluyendo comandos)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("🤖 Bot secretario con comandos en línea.")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+EOF
