@@ -6,6 +6,7 @@ from google import genai
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
+# Inicializar cliente de Gemini correctamente
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 SYSTEM_PROMPT = """
@@ -28,7 +29,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         reply_text = response.text
     except Exception as e:
-        reply_text = "Disculpe, jefe. Ocurrió un error al procesar su solicitud."
+        reply_text = f"Error técnico: {str(e)}"
 
     await update.message.reply_text(reply_text)
 
@@ -50,7 +51,7 @@ async def ia_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         reply_text = response.text
     except Exception as e:
-        reply_text = "Disculpe, jefe. Ocurrió un error al procesar su consulta."
+        reply_text = f"Error técnico: {str(e)}"
 
     await update.message.reply_text(reply_text)
 
@@ -72,7 +73,7 @@ async def redactar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         reply_text = response.text
     except Exception as e:
-        reply_text = "Disculpe, jefe. Ocurrió un error al procesar la redacción."
+        reply_text = f"Error técnico: {str(e)}"
 
     await update.message.reply_text(reply_text)
 
@@ -94,7 +95,7 @@ async def resumir_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         reply_text = response.text
     except Exception as e:
-        reply_text = "Disculpe, jefe. Ocurrió un error al procesar el resumen."
+        reply_text = f"Error técnico: {str(e)}"
 
     await update.message.reply_text(reply_text)
 
