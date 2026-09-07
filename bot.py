@@ -1,7 +1,7 @@
 import os
 import threading
 from flask import Flask
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
 app_flask = Flask(__name__)
@@ -16,96 +16,121 @@ def run_flask():
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
-# --- COMANDOS ---
+ESTADOS_USUARIO = {}
+
+def obtener_teclado_principal():
+    # Botones alineados exactamente a la lista registrada en BotFather
+    teclado = [
+        [KeyboardButton("🔠 /mayus"), KeyboardButton("🔡 /minus")],
+        [KeyboardButton("🔢 /calc"), KeyboardButton("💱 /convertir")],
+        [KeyboardButton("📋 /plantilla")]
+    ]
+    return ReplyKeyboardMarkup(teclado, resize_keyboard=True)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje = (
-        "🤖 *Bienvenido a tu Asistente Local*\n\n"
-        "Comandos disponibles:\n"
-        "• /mayus <texto> - Convierte texto a MAYÚSCULAS\n"
-        "• /minus <texto> - Convierte texto a minúsculas\n"
-        "• /calc <operación> - Realiza cálculos matemáticos\n"
-        "• /convertir <monto> <de> <a_moneda> - Conversor básico\n"
-        "• /plantilla <tipo> - Genera plantillas (correo, reunion, nota)"
+        "🤖 *Bienvenido al Menú Principal*\n\n"
+        "Toca cualquiera de los botones de abajo para ejecutar una función:"
     )
-    await update.message.reply_text(mensaje, parse_mode="Markdown")
-
-async def mayus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = " ".join(context.args) if context.args else ""
-    if not user_text:
-        await update.message.reply_text("Escribe el texto a convertir. Ejemplo: /mayus hola mundo")
-        return
-    await update.message.reply_text(user_text.upper())
-
-async def minus_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = " ".join(context.args) if context.args else ""
-    if not user_text:
-        await update.message.reply_text("Escribe el texto a convertir. Ejemplo: /minus HOLA MUNDO")
-        return
-    await update.message.reply_text(user_text.lower())
-
-async def calc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    expr = " ".join(context.args) if context.args else ""
-    if not expr:
-        await update.message.reply_text("Escribe una operación. Ejemplo: /calc (50+20)*2")
-        return
-
-    try:
-        caracteres_permitidos = "0123456789+-*/(). "
-        if any(c not in caracteres_permitidos for c in expr):
-            raise ValueError
-        resultado = eval(expr)
-        await update.message.reply_text(f"🔢 *Resultado:* {resultado}", parse_mode="Markdown")
-    except Exception:
-        await update.message.reply_text("Operación matemática no válida.")
-
-async def convertir_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Ejemplo sencillo: conversión de unidades / monedas con tasa fija orientativa
-    if len(context.args) < 3:
-        await update.message.reply_text(
-            "Formato no válido. Usa: `/convertir <monto> <de> <a_moneda>`\n"
-            "Ejemplo: `/convertir 100 usd eur` o `/convertir 50 eur usd`",
-            parse_mode="Markdown"
-        )
-        return
-
-    try:
-        monto = float(context.args[0])
-        de = context.args[1].lower()
-        a = context.args[2].lower()
-
-        # Tasas de referencia fijas
-        tasas = {
-            ("usd", "eur"): 0.92,
-            ("eur", "usd"): 1.09,
-            ("usd", "mxn"): 18.0,
-            ("mxn", "usd"): 0.055,
-        }
-
-        tasa = tasas.get((de, a))
-        if tasa:
-            total = round(monto * tasa, 2)
-            await update.message.reply_text(f"💱 *Conversión:* {monto} {de.upper()} = {total} {a.upper()}", parse_mode="Markdown")
-        else:
-            await update.message.reply_text("Par de conversión no soportado de forma local. Prueba USD/EUR o USD/MXN.")
-    except ValueError:
-        await update.message.reply_text("El monto ingresado debe ser un número válido.")
-
-async def plantilla_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tipo = context.args[0].lower() if context.args else ""
-    plantillas = {
-        "correo": "Estimado/a [Nombre],\n\nEspero que se encuentre bien. Le escribo para...\n\nAtentamente,\n[Tu Nombre]",
-        "reunion": "📋 *Minuta de Reunión*\n- Fecha:\n- Asistentes:\n- Puntos clave:\n- Acuerdos:",
-        "nota": "📌 *Nota Ejecutiva*\n- Asunto:\n- Detalle:\n- Prioridad:"
-    }
-    if tipo in plantillas:
-        await update.message.reply_text(plantillas[tipo], parse_mode="Markdown")
-    else:
-        await update.message.reply_text("Usa: `/plantilla correo`, `/plantilla reunion` o `/plantilla nota`", parse_mode="Markdown")
+    await update.message.reply_text(
+        mensaje, 
+        parse_mode="Markdown", 
+        reply_markup=obtener_teclado_principal()
+    )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message and update.message.text:
-        await update.message.reply_text("Usa /start para ver las herramientas disponibles.")
+    if not update.message or not update.message.text:
+        return
+
+    user_id = update.effective_user.id
+    texto = update.message.text.strip()
+
+    # Detección de selección de botón
+    if texto == "🔠 /mayus" or texto == "/mayus":
+        ESTADOS_USUARIO[user_id] = "esperando_mayus"
+        await update.message.reply_text("Escribe el texto que deseas convertir a MAYÚSCULAS:")
+        return
+
+    elif texto == "🔡 /minus" or texto == "/minus":
+        ESTADOS_USUARIO[user_id] = "esperando_minus"
+        await update.message.reply_text("Escribe el texto que deseas convertir a minúsculas:")
+        return
+
+    elif texto == "🔢 /calc" or texto == "/calc":
+        ESTADOS_USUARIO[user_id] = "esperando_calc"
+        await update.message.reply_text("Escribe la operación matemática (Ejemplo: 50+20*2):")
+        return
+
+    elif texto == "💱 /convertir" or texto == "/convertir":
+        ESTADOS_USUARIO[user_id] = "esperando_convertir"
+        await update.message.reply_text("Escribe el monto y las monedas. Ejemplo: `10 usd eur`", parse_mode="Markdown")
+        return
+
+    elif texto == "📋 /plantilla" or texto == "/plantilla":
+        ESTADOS_USUARIO[user_id] = "esperando_plantilla"
+        await update.message.reply_text("Escribe qué plantilla necesitas: *correo*, *reunion* o *nota*", parse_mode="Markdown")
+        return
+
+    # Procesar respuesta del usuario
+    estado = ESTADOS_USUARIO.get(user_id)
+
+    if estado == "esperando_mayus":
+        ESTADOS_USUARIO[user_id] = None
+        await update.message.reply_text(texto.upper(), reply_markup=obtener_teclado_principal())
+
+    elif estado == "esperando_minus":
+        ESTADOS_USUARIO[user_id] = None
+        await update.message.reply_text(texto.lower(), reply_markup=obtener_teclado_principal())
+
+    elif estado == "esperando_calc":
+        ESTADOS_USUARIO[user_id] = None
+        try:
+            caracteres_permitidos = "0123456789+-*/(). "
+            if any(c not in caracteres_permitidos for c in texto):
+                raise ValueError
+            resultado = eval(texto)
+            await update.message.reply_text(f"🔢 *Resultado:* {resultado}", parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+        except Exception:
+            await update.message.reply_text("Operación matemática no válida.", reply_markup=obtener_teclado_principal())
+
+    elif estado == "esperando_convertir":
+        ESTADOS_USUARIO[user_id] = None
+        partes = texto.split()
+        if len(partes) >= 3:
+            try:
+                monto = float(partes[0])
+                de = partes[1].lower()
+                a = partes[2].lower()
+                tasas = {("usd", "eur"): 0.92, ("eur", "usd"): 1.09, ("usd", "mxn"): 18.0, ("mxn", "usd"): 0.055}
+                tasa = tasas.get((de, a))
+                if tasa:
+                    total = round(monto * tasa, 2)
+                    await update.message.reply_text(f"💱 *Resultado:* {monto} {de.upper()} = {total} {a.upper()}", parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+                else:
+                    await update.message.reply_text("Conversión no disponible en el diccionario local.", reply_markup=obtener_teclado_principal())
+            except ValueError:
+                await update.message.reply_text("El monto debe ser un número válido.", reply_markup=obtener_teclado_principal())
+        else:
+            await update.message.reply_text("Faltan datos. Ejemplo de uso: 10 usd eur", reply_markup=obtener_teclado_principal())
+
+    elif estado == "esperando_plantilla":
+        ESTADOS_USUARIO[user_id] = None
+        tipo = texto.lower()
+        plantillas = {
+            "correo": "Estimado/a [Nombre],\n\nEspero que se encuentre bien. Le escribo para...\n\nAtentamente,\n[Tu Nombre]",
+            "reunion": "📋 *Minuta de Reunión*\n- Fecha:\n- Asistentes:\n- Puntos clave:\n- Acuerdos:",
+            "nota": "📌 *Nota Ejecutiva*\n- Asunto:\n- Detalle:\n- Prioridad:"
+        }
+        if tipo in plantillas:
+            await update.message.reply_text(plantillas[tipo], parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+        else:
+            await update.message.reply_text("Opción no válida. Usa: correo, reunion o nota", reply_markup=obtener_teclado_principal())
+
+    else:
+        await update.message.reply_text(
+            "Selecciona una opción del menú táctil de abajo:", 
+            reply_markup=obtener_teclado_principal()
+        )
 
 def main():
     flask_thread = threading.Thread(target=run_flask)
@@ -115,11 +140,6 @@ def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("mayus", mayus_command))
-    app.add_handler(CommandHandler("minus", minus_command))
-    app.add_handler(CommandHandler("calc", calc_command))
-    app.add_handler(CommandHandler("convertir", convertir_command))
-    app.add_handler(CommandHandler("plantilla", plantilla_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.run_polling()
