@@ -6,14 +6,14 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from google import genai
 
-# Forzar codificación UTF-8
+# Forzar codificación UTF-8 en el entorno
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
 app_flask = Flask(__name__)
 
 @app_flask.route('/')
 def home():
-    return "🤖 Bot activo."
+    return "🤖 Bot activo y funcionando correctamente."
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -31,6 +31,7 @@ Si el usuario envía un texto sin especificar idioma, tradúcelo al español de 
 """
 
 def clean_text(text: str) -> str:
+    """Remueve caracteres invisibles de formato Unicode (\u200e, etc.) y normaliza a UTF-8."""
     if not text:
         return ""
     text = unicodedata.normalize("NFKC", str(text))
