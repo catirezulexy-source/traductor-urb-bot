@@ -60,8 +60,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caracteres = string.ascii_letters + string.digits + "!@#$%&*"
         password = ''.join(random.choice(caracteres) for _ in range(12))
         await update.message.reply_text(
-            f"🔑 *Contraseña Segura Generada:*\n`{password}`", 
-            parse_mode="Markdown", 
+            f"🔑 *Contraseña Segura Generada:*\n`{password}`",
+            parse_mode="Markdown",
             reply_markup=obtener_teclado_principal()
         )
         return
@@ -71,7 +71,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nota_actual = NOTAS_USUARIOS.get(user_id, "No tienes notas guardadas aún.")
         await update.message.reply_text(
             f"📝 *Tus notas actuales:*\n{nota_actual}\n\n"
-            "Escribe el nuevo texto que deseas guardar como tu nota:", 
+            "Escribe el nuevo texto que deseas guardar como tu nota:",
             parse_mode="Markdown"
         )
         return
@@ -99,8 +99,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ESTADOS_USUARIO[user_id] = None
         NOTAS_USUARIOS[user_id] = texto
         await update.message.reply_text(
-            "✅ *¡Nota guardada con éxito!* Puedes consultarla cuando quieras tocando el botón de notas.", 
-            parse_mode="Markdown", 
+            "✅ *¡Nota guardada con éxito!* Puedes consultarla cuando quieras tocando el botón de notas.",
+            parse_mode="Markdown",
             reply_markup=obtener_teclado_principal()
         )
 
