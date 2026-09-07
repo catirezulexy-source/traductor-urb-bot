@@ -1,4 +1,3 @@
-cat << 'EOF' > bot.py
 import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
@@ -15,10 +14,9 @@ Tu tarea es ayudar al usuario a traducir textos a la perfección.
 Si el usuario envía un texto sin especificar idioma, tradúcelo al español de forma natural y profesional.
 """
 
-# 1. Manejador de mensajes con validación de seguridad para evitar errores de tipo None
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
-        return  # Si no hay texto (fotos, stickers, mensajes vacíos), lo ignora sin dar error
+        return
 
     user_text = update.message.text
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
@@ -34,7 +32,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(reply_text)
 
-# 2. Comando /ia
 async def ia_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
@@ -57,7 +54,6 @@ async def ia_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(reply_text)
 
-# 3. Comando /redactar
 async def redactar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
@@ -80,7 +76,6 @@ async def redactar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(reply_text)
 
-# 4. Comando /resumir
 async def resumir_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
@@ -116,4 +111,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-EOF
