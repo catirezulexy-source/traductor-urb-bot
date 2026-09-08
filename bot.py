@@ -48,12 +48,15 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     processing_msg = await update.message.reply_text("🎙️ Procesando y transcribiendo nota de voz...")
 
-    file_path = f"temp_voice_{user_id}.ogg"
+    # Usar /tmp/ asegura permisos de escritura en servidores en la nube como Railway
+    file_path = f"/tmp/temp_voice_{user_id}.ogg"
     try:
+        print("DEBUG: Descargando audio de Telegram...")
         voice = update.message.voice
         file = await context.bot.get_file(voice.file_id)
         await file.download_to_drive(file_path)
 
+        print("DEBUG: Conectando con OpenAI Whisper...")
         client = AsyncOpenAI(api_key=OPENAI_API_KEY)
         with open(file_path, "rb") as audio_file:
             transcript = await client.audio.transcriptions.create(
@@ -70,6 +73,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if os.path.exists(file_path):
             os.remove(file_path)
 
+        print("DEBUG: Transcripción exitosa, enviando respuesta...")
         await context.bot.edit_message_text(
             chat_id=update.effective_chat.id,
             message_id=processing_msg.message_id,
@@ -77,15 +81,18 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=obtener_teclado_principal()
         )
     except Exception as e:
-        print(f"Error en voz: {e}")
+        print(f"ERROR CRÍTICO EN VOZ: {e}")
         if os.path.exists(file_path):
             os.remove(file_path)
-        await context.bot.edit_message_text(
-            chat_id=update.effective_chat.id,
-            message_id=processing_msg.message_id,
-            text=f"❌ Error al procesar el audio: {e}",
-            reply_markup=obtener_teclado_principal()
-        )
+        try:
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=processing_msg.message_id,
+                text=f"❌ Error: {e}",
+                reply_markup=obtener_teclado_principal()
+            )
+        except Exception as edit_err:
+            print(f"No se pudo editar el mensaje de error: {edit_err}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
