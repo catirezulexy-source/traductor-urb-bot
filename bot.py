@@ -21,11 +21,9 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 ESTADOS_USUARIO = {}
-# Almacenamiento local temporal de notas por usuario
 NOTAS_USUARIOS = {}
 
 def obtener_teclado_principal():
-    # Botones alineados a la lista registrada en BotFather
     teclado = [
         [KeyboardButton("🔢 /calc"), KeyboardButton("🔑 /pass")],
         [KeyboardButton("📝 /nota"), KeyboardButton("🌤 /tiempo")]
@@ -72,17 +70,17 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.edit_message_text(
             chat_id=update.effective_chat.id,
             message_id=processing_msg.message_id,
-            text=f"✅ *¡Nota de voz transcrita y guardada con éxito!*\n\n\"{texto_transcrito}\"\n\nToca `/nota` cuando quieras consultarla.",
-            parse_mode="Markdown",
+            text=f"✅ ¡Nota de voz transcrita y guardada con éxito!\n\n\"{texto_transcrito}\"\n\nToca /nota cuando quieras consultarla.",
             reply_markup=obtener_teclado_principal()
         )
-    except Exception:
+    except Exception as e:
+        print(f"Error en voz: {e}")
         if os.path.exists(file_path):
             os.remove(file_path)
         await context.bot.edit_message_text(
             chat_id=update.effective_chat.id,
             message_id=processing_msg.message_id,
-            text="❌ Hubo un error al transcribir la nota de voz. Asegúrate de que la variable `OPENAI_API_KEY` esté configurada correctamente.",
+            text=f"❌ Error al transcribir: {e}",
             reply_markup=obtener_teclado_principal()
         )
 
@@ -93,7 +91,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     texto = update.message.text.strip()
 
-    # Detección de selección de botón o comando
     if texto == "🔢 /calc" or texto == "/calc":
         ESTADOS_USUARIO[user_id] = "esperando_calc"
         await update.message.reply_text("Escribe la operación matemática (Ejemplo: 50+20*2):")
@@ -101,7 +98,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif texto == "🔑 /pass" or texto == "/pass":
         ESTADOS_USUARIO[user_id] = None
-        # Generar contraseña segura de 12 caracteres al instante
         caracteres = string.ascii_letters + string.digits + "!@#$%&*"
         password = ''.join(random.choice(caracteres) for _ in range(12))
         await update.message.reply_text(
@@ -125,7 +121,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Escribe el nombre de la ciudad para consultar el pronóstico:")
         return
 
-    # Procesar respuesta según el estado del usuario
     estado = ESTADOS_USUARIO.get(user_id)
 
     if estado == "esperando_calc":
@@ -135,7 +130,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if any(c not in caracteres_permitidos for c in texto):
                 raise ValueError
             resultado = eval(texto)
-            await update.message.reply_text(f"🔢 *Resultado:* {resultado}", parse_make="Markdown", reply_markup=obtener_teclado_principal())
+            await update.message.reply_text(f"🔢 *Resultado:* {resultado}", parse_mode="Markdown", reply_markup=obtener_teclado_principal())
         except Exception:
             await update.message.reply_text("Operación matemática no válida.", reply_markup=obtener_teclado_principal())
 
@@ -150,7 +145,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif estado == "esperando_tiempo":
         ESTADOS_USUARIO[user_id] = None
-        # Simulación local práctica sin depender de APIs externas de clima
         clima_simulado = f"🌤 Clima actual en *{texto.capitalize()}*: 24°C, Parcialmente nublado. Viento a 12 km/h."
         await update.message.reply_text(clima_simulado, parse_mode="Markdown", reply_markup=obtener_teclado_principal())
 
