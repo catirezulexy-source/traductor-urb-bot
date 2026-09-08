@@ -61,7 +61,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 file=audio_file
             )
 
-        texto_transcrito = transcript.text
+        texto_transcrito = transcript.text.strip() if transcript.text else "[Audio vacío]"
+        if len(texto_transcrito) > 4000:
+            texto_transcrito = texto_transcrito[:4000] + "..."
+
         NOTAS_USUARIOS[user_id] = texto_transcrito
 
         if os.path.exists(file_path):
@@ -70,7 +73,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.edit_message_text(
             chat_id=update.effective_chat.id,
             message_id=processing_msg.message_id,
-            text=f"✅ ¡Nota de voz transcrita y guardada con éxito!\n\n\"{texto_transcrito}\"\n\nToca /nota cuando quieras consultarla.",
+            text=f"✅ ¡Nota transcrita!\n\n{texto_transcrito}",
             reply_markup=obtener_teclado_principal()
         )
     except Exception as e:
@@ -80,7 +83,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.edit_message_text(
             chat_id=update.effective_chat.id,
             message_id=processing_msg.message_id,
-            text=f"❌ Error al transcribir: {e}",
+            text=f"❌ Error al procesar el audio.",
             reply_markup=obtener_teclado_principal()
         )
 
