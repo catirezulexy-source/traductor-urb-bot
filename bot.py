@@ -3,7 +3,7 @@ import random
 import string
 import threading
 from flask import Flask
-from openai import OpenAI
+from openai import AsyncOpenAI
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
@@ -54,9 +54,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file = await context.bot.get_file(voice.file_id)
         await file.download_to_drive(file_path)
 
-        client = OpenAI(api_key=OPENAI_API_KEY)
+        client = AsyncOpenAI(api_key=OPENAI_API_KEY)
         with open(file_path, "rb") as audio_file:
-            transcript = client.audio.transcriptions.create(
+            transcript = await client.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_file
             )
@@ -83,7 +83,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.edit_message_text(
             chat_id=update.effective_chat.id,
             message_id=processing_msg.message_id,
-            text=f"❌ Error al procesar el audio.",
+            text=f"❌ Error al procesar el audio: {e}",
             reply_markup=obtener_teclado_principal()
         )
 
