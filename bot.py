@@ -2,6 +2,7 @@ import os
 import random
 import string
 import threading
+import asyncio
 from flask import Flask
 import google.generativeai as genai
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
@@ -43,6 +44,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=obtener_teclado_principal()
     )
 
+def _transcribir_con_gemini(file_path):
+    audio_file_ref = genai.upload_file(file_path)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    response = model.generate_content([
+        audio_file_ref,
+        "Transcribe este audio de manera exacta al idioma en el que se habla, devolviendo únicamente el texto de lo que se dice sin comentarios adicionales."
+    ])
+    texto = response.text.strip() if response.text else "[Audio vacío]"
+    return audio_file_ref, texto
+
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.voice:
         return
@@ -57,15 +68,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file = await context.bot.get_file(voice.file_id)
         await file.download_to_drive(file_path)
 
-        audio_file_ref = genai.upload_file(file_path)
-        
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content([
-            audio_file_ref,
-            "Transcribe este audio de manera exacta al idioma en el que se habla, devolviendo únicamente el texto de lo que se dice sin comentarios adicionales."
-        ])
+        # Ejecutamos Gemini en un hilo separado para no bloquear el bot
+        audio_file_ref, texto_transcrito = await asyncio.to_thread(_transcribir_con_gemini, file_path)
 
-        texto_transcrito = response.text.strip() if response.text else "[Audio vacío]"
         if len(texto_transcrito) > 4000:
             texto_transcrito = texto_transcrito[:4000] + "..."
 
@@ -75,7 +80,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(file_path)
 
         if audio_file_ref:
-            genai.delete_file(audio_file_ref.name)
+            try:
+                genai.delete_file(audio_file_ref.name)
+            except:
+                pass
 
         await context.bot.edit_message_text(
             chat_id=update.effective_chat.id,
