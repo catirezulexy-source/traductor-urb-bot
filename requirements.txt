@@ -1,4 +1,4 @@
+flask
 python-telegram-bot
-google-genai
-flask 
-openai
+google-generativeai
+

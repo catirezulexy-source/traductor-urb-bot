@@ -3,7 +3,7 @@ import random
 import string
 import threading
 from flask import Flask
-from openai import AsyncOpenAI
+import google.generativeai as genai
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
@@ -18,7 +18,9 @@ def run_flask():
     app_flask.run(host="0.0.0.0", port=port)
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+
+genai.configure(api_key=GEMINI_API_KEY)
 
 ESTADOS_USUARIO = {}
 NOTAS_USUARIOS = {}
@@ -46,25 +48,24 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user_id = update.effective_user.id
-    processing_msg = await update.message.reply_text("🎙️ Procesando y transcribiendo nota de voz...")
+    processing_msg = await update.message.reply_text("🎙️ Procesando nota de voz con Gemini...")
 
-    # Usar /tmp/ asegura permisos de escritura en servidores en la nube como Railway
     file_path = f"/tmp/temp_voice_{user_id}.ogg"
+    audio_file_ref = None
     try:
-        print("DEBUG: Descargando audio de Telegram...")
         voice = update.message.voice
         file = await context.bot.get_file(voice.file_id)
         await file.download_to_drive(file_path)
 
-        print("DEBUG: Conectando con OpenAI Whisper...")
-        client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-        with open(file_path, "rb") as audio_file:
-            transcript = await client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file
-            )
+        audio_file_ref = genai.upload_file(file_path)
+        
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content([
+            audio_file_ref,
+            "Transcribe este audio de manera exacta al idioma en el que se habla, devolviendo únicamente el texto de lo que se dice sin comentarios adicionales."
+        ])
 
-        texto_transcrito = transcript.text.strip() if transcript.text else "[Audio vacío]"
+        texto_transcrito = response.text.strip() if response.text else "[Audio vacío]"
         if len(texto_transcrito) > 4000:
             texto_transcrito = texto_transcrito[:4000] + "..."
 
@@ -73,26 +74,33 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if os.path.exists(file_path):
             os.remove(file_path)
 
-        print("DEBUG: Transcripción exitosa, enviando respuesta...")
+        if audio_file_ref:
+            genai.delete_file(audio_file_ref.name)
+
         await context.bot.edit_message_text(
             chat_id=update.effective_chat.id,
             message_id=processing_msg.message_id,
-            text=f"✅ ¡Nota transcrita!\n\n{texto_transcrito}",
+            text=f"✅ ¡Nota transcrita con Gemini!\n\n{texto_transcrito}",
             reply_markup=obtener_teclado_principal()
         )
     except Exception as e:
-        print(f"ERROR CRÍTICO EN VOZ: {e}")
+        print(f"ERROR EN VOZ GEMINI: {e}")
         if os.path.exists(file_path):
             os.remove(file_path)
+        if audio_file_ref:
+            try:
+                genai.delete_file(audio_file_ref.name)
+            except:
+                pass
         try:
             await context.bot.edit_message_text(
                 chat_id=update.effective_chat.id,
                 message_id=processing_msg.message_id,
-                text=f"❌ Error: {e}",
+                text=f"❌ Error al procesar el audio: {e}",
                 reply_markup=obtener_teclado_principal()
             )
         except Exception as edit_err:
-            print(f"No se pudo editar el mensaje de error: {edit_err}")
+            print(f"No se pudo editar el mensaje: {edit_err}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
