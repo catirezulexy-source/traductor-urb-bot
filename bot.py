@@ -50,19 +50,37 @@ def acortar_para_downloader(url_larga):
         req = urllib.request.Request(
             "https://go.aftvnews.com/shorten",
             data=data,
-            headers={'User-Agent': 'Mozilla/5.0'}
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
-            resultado = resp.read().decode('utf-8').strip()
-            codigo_numerico = ''.join(filter(str.isdigit, resultado))
-            if codigo_numerico:
+            url_final = resp.geturl()
+            cuerpo = resp.read().decode('utf-8').strip()
+            
+            codigo_match = re.search(r'(\d{5,6})', url_final) or re.search(r'aftv\.news/(\d{5,6})', cuerpo)
+            
+            if codigo_match:
+                codigo_numerico = codigo_match.group(1)
                 return (
                     f"✅ *¡Código generado con éxito!*\n\n"
                     f"🔢 *Código Downloader:* `{codigo_numerico}`\n"
                     f"🌐 *Enlace directo:* `aftv.news/{codigo_numerico}`\n\n"
                     f"💡 _Ingresa los números directamente en la app Downloader de tu TV._"
                 )
-            return "⚠️ No se pudo extraer un código numérico válido."
+            
+            solo_digitos = re.sub(r'\D', '', cuerpo)
+            if 5 <= len(solo_digitos) <= 6:
+                return (
+                    f"✅ *¡Código generado con éxito!*\n\n"
+                    f"🔢 *Código Downloader:* `{solo_digitos}`\n"
+                    f"🌐 *Enlace directo:* `aftv.news/{solo_digitos}`\n\n"
+                    f"💡 _Ingresa los números directamente en la app Downloader de tu TV._"
+                )
+
+            return "⚠️ No se pudo obtener un código corto válido para esta URL."
+
     except Exception as e:
         print(f"Error acortando URL: {e}")
         return "❌ Hubo un error al conectar con el servidor de acortado."
