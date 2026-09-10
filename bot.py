@@ -6,23 +6,22 @@ import threading
 import urllib.parse
 import urllib.request
 import json
-from flask import Flask, redirect, render_template_string
+from flask import Flask, render_template_string
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 app_flask = Flask(__name__)
 
-# Diccionario en memoria para almacenar las URLs acortadas
 URL_DB = {}
 
 @app_flask.route('/')
 def home():
     return "🤖 Bot Asistente Activo y Funcional."
 
-# Ruta acortadora propia: cuando Downloader o un navegador abre tudominio.up.railway.app/d/ABCDE
 @app_flask.route('/d/<code_id>')
 def redirect_short_url(code_id):
     target_url = URL_DB.get(code_id)
     if target_url:
-        # Redirección directa HTTP 302 + fallback HTML para Downloader
         html_fallback = f'''
         <!DOCTYPE html>
         <html>
@@ -69,18 +68,15 @@ def obtener_teclado_principal():
 
 def acortar_para_downloader(url_larga):
     try:
-        # Generar un código aleatorio de 4 caracteres
         code_id = ''.join(random.choices(string.ascii_letters + string.digits, k=4))
         URL_DB[code_id] = url_larga
         
-        # Obtener la URL del dominio que Railway le asigna al proyecto
         railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN") or os.environ.get("RAILWAY_STATIC_URL")
         
         if railway_domain:
             railway_domain = railway_domain.replace("https://", "").replace("http://", "").strip("/")
             short_url = f"{railway_domain}/d/{code_id}"
         else:
-            # En caso de no detectar la variable en Railway todavía:
             short_url = f"tu-app.up.railway.app/d/{code_id}"
 
         return (
