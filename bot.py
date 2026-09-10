@@ -25,26 +25,13 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ESTADOS_USUARIO = {}
 NOTAS_USUARIOS = {}
 
-# Mapeo simple de códigos de clima de Open-Meteo
 WEATHER_CODES = {
-    0: "☀️ Despejado",
-    1: "🌤 Principalmente despejado",
-    2: "⛅ Parcialmente nublado",
-    3: "☁️ Nublado",
-    45: "🌫 Niebla",
-    48: "🌫 Niebla con escarcha",
-    51: "🌦 Llovizna ligera",
-    53: "🌦 Llovizna moderada",
-    55: "🌦 Llovizna densa",
-    61: "🌧 Lluvia ligera",
-    63: "🌧 Lluvia moderada",
-    65: "🌧 Lluvia fuerte",
-    71: "❄️ Nieve ligera",
-    73: "❄️ Nieve moderada",
-    75: "❄️ Nieve fuerte",
-    80: "🌧 Chubascos ligeros",
-    81: "🌧 Chubascos moderados",
-    82: "🌧 Chubascos violentos",
+    0: "☀️ Despejado", 1: "🌤 Principalmente despejado", 2: "⛅ Parcialmente nublado",
+    3: "☁️ Nublado", 45: "🌫 Niebla", 48: "🌫 Niebla con escarcha",
+    51: "🌦 Llovizna ligera", 53: "🌦 Llovizna moderada", 55: "🌦 Llovizna densa",
+    61: "🌧 Lluvia ligera", 63: "🌧 Lluvia moderada", 65: "🌧 Lluvia fuerte",
+    71: "❄️ Nieve ligera", 73: "❄️ Nieve moderada", 75: "❄️ Nieve fuerte",
+    80: "🌧 Chubascos ligeros", 81: "🌧 Chubascos moderados", 82: "🌧 Chubascos violentos",
     95: "🌩 Tormenta eléctrica"
 }
 
@@ -58,7 +45,6 @@ def obtener_teclado_principal():
 
 def obtener_clima_real(ciudad):
     try:
-        # 1. Buscar coordenadas de la ciudad
         ciudad_encoded = urllib.parse.quote(ciudad)
         url_geo = f"https://geocoding-api.open-meteo.com/v1/search?name={ciudad_encoded}&count=1&language=es&format=json"
         
@@ -70,12 +56,10 @@ def obtener_clima_real(ciudad):
             return f"❌ No se encontró la ciudad/país: *{ciudad}*"
             
         lugar = data_geo["results"][0]
-        lat = lugar["latitude"]
-        lon = lugar["longitude"]
+        lat, lon = lugar["latitude"], lugar["longitude"]
         nombre_lugar = lugar.get("name", ciudad)
         pais = lugar.get("country", "")
         
-        # 2. Consultar clima actual con coordenadas
         url_weather = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
         req_weather = urllib.request.Request(url_weather, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req_weather, timeout=5) as resp:
@@ -87,93 +71,84 @@ def obtener_clima_real(ciudad):
         code = current.get("weathercode", 0)
         
         condicion = WEATHER_CODES.get(code, "🌡 Clima variable")
-        
         ubicacion_str = f"{nombre_lugar}, {pais}" if pais else nombre_lugar
         return f"🌤 *Clima actual en {ubicacion_str}:*\n\n• Estado: {condicion}\n• Temperatura: `{temp}°C`\n• Viento: `{wind} km/h`"
     except Exception as e:
         print(f"Error consultando clima: {e}")
         return "❌ Hubo un problema al consultar el servicio de clima."
 
+# FUNCIONES INDEPENDIENTES PARA COMANDOS Y BOTONES
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    mensaje = (
-        "🤖 *Bienvenido al Menú Principal*\n\n"
-        "Toca cualquiera de los botones de abajo para ejecutar una función al instante."
+    mensaje = "🤖 *Bienvenido al Menú Principal*\n\nToca cualquiera de los botones o usa el menú para ejecutar una función al instante."
+    await update.message.reply_text(mensaje, parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+
+async def cmd_calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ESTADOS_USUARIO[update.effective_user.id] = "esperando_calc"
+    await update.message.reply_text("Escribe la operación matemática (Ejemplo: 50+20*2):")
+
+async def cmd_pass(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ESTADOS_USUARIO[update.effective_user.id] = None
+    caracteres = string.ascii_letters + string.digits + "!@#$%&*"
+    password = ''.join(random.choice(caracteres) for _ in range(12))
+    await update.message.reply_text(f"🔑 *Contraseña Segura Generada:*\n`{password}`", parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+
+async def cmd_nota(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    nota_actual = NOTAS_USUARIOS.get(user_id, "No tienes notas guardadas aún.")
+    ESTADOS_USUARIO[user_id] = "esperando_nota"
+    await update.message.reply_text(f"📝 *Tu nota actual:*\n{nota_actual}\n\nEscribe el nuevo texto que deseas guardar:", parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+
+async def cmd_tiempo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ESTADOS_USUARIO[update.effective_user.id] = "esperando_tiempo"
+    await update.message.reply_text("Escribe el nombre de la ciudad o país para consultar el clima real:")
+
+async def cmd_wa(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ESTADOS_USUARIO[update.effective_user.id] = "esperando_wa"
+    await update.message.reply_text("📲 *Generador de Enlace WhatsApp*\n\nEscribe el número de teléfono con el código de país (Ejemplo: `+5215512345678`):", parse_mode="Markdown")
+
+async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    ESTADOS_USUARIO[user.id] = None
+    username = f"@{user.username}" if user.username else "Sin username público"
+    enlace_perfil = f"https://t.me/{user.username}" if user.username else "No disponible (crea un @username en tus ajustes)"
+    
+    info_perfil = (
+        f"👤 *Información de tu Perfil de Telegram*\n\n"
+        f"🆔 *ID Numérico:* `{user.id}`\n"
+        f"👤 *Usuario:* {username}\n"
+        f"🔗 *Enlace Directo:* {enlace_perfil}"
     )
-    await update.message.reply_text(
-        mensaje,
-        parse_mode="Markdown",
-        reply_markup=obtener_teclado_principal()
-    )
+    await update.message.reply_text(info_perfil, parse_mode="Markdown", reply_markup=obtener_teclado_principal())
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
-    user = update.effective_user
-    user_id = user.id
+    user_id = update.effective_user.id
     texto = update.message.text.strip()
     estado = ESTADOS_USUARIO.get(user_id)
 
-    # 1. COMANDOS DEL MENÚ PRINCIPAL
-    if texto in ["🔢 /calc", "/calc"]:
-        ESTADOS_USUARIO[user_id] = "esperando_calc"
-        await update.message.reply_text("Escribe la operación matemática (Ejemplo: 50+20*2):")
+    # Detección de botones táctiles con emojis
+    if texto == "🔢 /calc":
+        await cmd_calc(update, context)
+        return
+    elif texto == "🔑 /pass":
+        await cmd_pass(update, context)
+        return
+    elif texto == "📝 /nota":
+        await cmd_nota(update, context)
+        return
+    elif texto == "🌤 /tiempo":
+        await cmd_tiempo(update, context)
+        return
+    elif texto == "📲 /wa":
+        await cmd_wa(update, context)
+        return
+    elif texto == "🆔 /id":
+        await cmd_id(update, context)
         return
 
-    elif texto in ["🔑 /pass", "/pass"]:
-        ESTADOS_USUARIO[user_id] = None
-        caracteres = string.ascii_letters + string.digits + "!@#$%&*"
-        password = ''.join(random.choice(caracteres) for _ in range(12))
-        await update.message.reply_text(
-            f"🔑 *Contraseña Segura Generada:*\n`{password}`",
-            parse_mode="Markdown",
-            reply_markup=obtener_teclado_principal()
-        )
-        return
-
-    elif texto in ["📝 /nota", "/nota"]:
-        nota_actual = NOTAS_USUARIOS.get(user_id, "No tienes notas guardadas aún.")
-        ESTADOS_USUARIO[user_id] = "esperando_nota"
-        await update.message.reply_text(
-            f"📝 *Tu nota actual:*\n{nota_actual}\n\nEscribe el nuevo texto que deseas guardar:",
-            parse_mode="Markdown",
-            reply_markup=obtener_teclado_principal()
-        )
-        return
-
-    elif texto in ["🌤 /tiempo", "/tiempo"]:
-        ESTADOS_USUARIO[user_id] = "esperando_tiempo"
-        await update.message.reply_text("Escribe el nombre de la ciudad o país para consultar el clima real:")
-        return
-
-    elif texto in ["📲 /wa", "/wa"]:
-        ESTADOS_USUARIO[user_id] = "esperando_wa"
-        await update.message.reply_text(
-            "📲 *Generador de Enlace WhatsApp*\n\n"
-            "Escribe el número de teléfono con el código de país (Ejemplo: `+5215512345678`):",
-            parse_mode="Markdown"
-        )
-        return
-
-    elif texto in ["🆔 /id", "/id"]:
-        ESTADOS_USUARIO[user_id] = None
-        username = f"@{user.username}" if user.username else "Sin username público"
-        enlace_perfil = f"https://t.me/{user.username}" if user.username else "No disponible (crea un @username en tus ajustes)"
-        
-        info_perfil = (
-            f"👤 *Información de tu Perfil de Telegram*\n\n"
-            f"🆔 *ID Numérico:* `{user_id}`\n"
-            f"👤 *Usuario:* {username}\n"
-            f"🔗 *Enlace Directo:* {enlace_perfil}"
-        )
-        await update.message.reply_text(
-            info_perfil,
-            parse_mode="Markdown",
-            reply_markup=obtener_teclado_principal()
-        )
-        return
-
-    # 2. PROCESAMIENTO DE ESTADOS PENDIENTES
+    # Procesamiento de estados pendientes de entrada de texto
     if estado == "esperando_calc":
         ESTADOS_USUARIO[user_id] = None
         try:
@@ -181,60 +156,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if any(c not in caracteres_permitidos for c in texto):
                 raise ValueError
             resultado = eval(texto)
-            await update.message.reply_text(
-                f"🔢 *Resultado:* `{resultado}`", 
-                parse_mode="Markdown", 
-                reply_markup=obtener_teclado_principal()
-            )
+            await update.message.reply_text(f"🔢 *Resultado:* `{resultado}`", parse_mode="Markdown", reply_markup=obtener_teclado_principal())
         except Exception:
-            await update.message.reply_text(
-                "❌ Operación matemática no válida.", 
-                reply_markup=obtener_teclado_principal()
-            )
+            await update.message.reply_text("❌ Operación matemática no válida.", reply_markup=obtener_teclado_principal())
         return
 
     elif estado == "esperando_nota":
         ESTADOS_USUARIO[user_id] = None
         NOTAS_USUARIOS[user_id] = texto
-        await update.message.reply_text(
-            "✅ *¡Nota guardada con éxito!* Toca de nuevo `/nota` cuando quieras consultarla.",
-            parse_mode="Markdown",
-            reply_markup=obtener_teclado_principal()
-        )
+        await update.message.reply_text("✅ *¡Nota guardada con éxito!* Toca de nuevo `/nota` cuando quieras consultarla.", parse_mode="Markdown", reply_markup=obtener_teclado_principal())
         return
 
     elif estado == "esperando_tiempo":
         ESTADOS_USUARIO[user_id] = None
         reporte_clima = obtener_clima_real(texto)
-        await update.message.reply_text(
-            reporte_clima, 
-            parse_mode="Markdown", 
-            reply_markup=obtener_teclado_principal()
-        )
+        await update.message.reply_text(reporte_clima, parse_mode="Markdown", reply_markup=obtener_teclado_principal())
         return
 
     elif estado == "esperando_wa":
         ESTADOS_USUARIO[user_id] = None
         solo_numeros = re.sub(r"\D", "", texto)
         if len(solo_numeros) >= 7:
-            link_wa = f"https://wa.me/{solo_numeros}"
-            await update.message.reply_text(
-                f"📲 *Enlace listo para chatear:*\n\n{link_wa}",
-                parse_mode="Markdown",
-                reply_markup=obtener_teclado_principal()
-            )
+            await update.message.reply_text(f"📲 *Enlace listo para chatear:*\n\nhttps://wa.me/{solo_numeros}", parse_mode="Markdown", reply_markup=obtener_teclado_principal())
         else:
-            await update.message.reply_text(
-                "❌ El número ingresado es muy corto o no es válido.",
-                reply_markup=obtener_teclado_principal()
-            )
+            await update.message.reply_text("❌ El número ingresado es muy corto o no es válido.", reply_markup=obtener_teclado_principal())
         return
 
-    # 3. RESPUESTA POR DEFECTO
-    await update.message.reply_text(
-        "Selecciona una opción del menú táctil para comenzar:",
-        reply_markup=obtener_teclado_principal()
-    )
+    await update.message.reply_text("Selecciona una opción del menú para comenzar:", reply_markup=obtener_teclado_principal())
 
 def main():
     flask_thread = threading.Thread(target=run_flask)
@@ -243,7 +191,16 @@ def main():
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
+    # Manejadores explícitos para comandos del menú azul
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("calc", cmd_calc))
+    app.add_handler(CommandHandler("pass", cmd_pass))
+    app.add_handler(CommandHandler("nota", cmd_nota))
+    app.add_handler(CommandHandler("tiempo", cmd_tiempo))
+    app.add_handler(CommandHandler("wa", cmd_wa))
+    app.add_handler(CommandHandler("id", cmd_id))
+
+    # Manejador para botones del teclado táctil e ingreso de datos
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.run_polling()
