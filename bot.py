@@ -25,6 +25,15 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ESTADOS_USUARIO = {}
 NOTAS_USUARIOS = {}
 
+# Mensaje de bienvenida y reglas por defecto para grupos
+MENSAJE_REGLAS = (
+    "📜 *Reglas del Grupo*:\n\n"
+    "1️⃣ Mantén el respeto hacia todos los miembros.\n"
+    "2️⃣ No compartas enlaces de spam o contenido no solicitado.\n"
+    "3️⃣ Usa los canales o temas adecuados para cada conversación.\n\n"
+    "¡Disfruta tu estancia y participa con confianza! 🤖"
+)
+
 # Mapeo simple de códigos de clima de Open-Meteo
 WEATHER_CODES = {
     0: "☀️ Despejado",
@@ -104,6 +113,24 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
         reply_markup=obtener_teclado_principal()
     )
+
+async def reglas_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(MENSAJE_REGLAS, parse_mode="Markdown")
+
+async def bienvenida_nuevo_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.new_chat_members:
+        return
+        
+    for member in update.message.new_chat_members:
+        if member.id == context.bot.id:
+            continue
+            
+        nombre = member.first_name or "Amigo"
+        saludo = (
+            f"👋 ¡Bienvenido/a al grupo, {nombre}!\n\n"
+            f"{MENSAJE_REGLAS}"
+        )
+        await update.message.reply_text(saludo, parse_mode="Markdown")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -244,6 +271,8 @@ def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("reglas", reglas_command))
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bienvenida_nuevo_usuario))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.run_polling()
