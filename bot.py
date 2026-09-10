@@ -66,6 +66,7 @@ def obtener_teclado_principal():
         [KeyboardButton("📝 /nota"), KeyboardButton("🌤 /tiempo")],
         [KeyboardButton("📲 /wa"), KeyboardButton("🆔 /id")],
         [KeyboardButton("🔔 /alerta_lluvia"), KeyboardButton("🚨 /alerta_sismo")],
+        [KeyboardButton("📊 /estado"), KeyboardButton("⚡ /probar_alerta")],
         [KeyboardButton("📋 /ayuda")]
     ]
     return ReplyKeyboardMarkup(teclado, resize_keyboard=True)
@@ -87,26 +88,30 @@ def obtener_coordenadas(ciudad):
         return None, None, None
 
 def obtener_clima_real(ciudad):
-    try:
-        lat, lon, nombre_lugar = obtener_coordenadas(ciudad)
-        if not lat:
-            return f"❌ No se encontró la ciudad/país: *{ciudad}*", None, None
+    for intento in range(2):
+        try:
+            lat, lon, nombre_lugar = obtener_coordenadas(ciudad)
+            if not lat:
+                return f"❌ No se encontró la ciudad/país: *{ciudad}*", None, None
+                
+            url_weather = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
+            req_weather = urllib.request.Request(url_weather, headers={'User-Agent': 'Mozilla/5.0'})
             
-        url_weather = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
-        req_weather = urllib.request.Request(url_weather, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req_weather, timeout=10) as resp:
-            data_weather = json.loads(resp.read().decode())
+            with urllib.request.urlopen(req_weather, timeout=15) as resp:
+                data_weather = json.loads(resp.read().decode())
+                
+            current = data_weather.get("current_weather", {})
+            temp = current.get("temperature", "N/A")
+            wind = current.get("windspeed", "N/A")
+            code = current.get("weathercode", 0)
             
-        current = data_weather.get("current_weather", {})
-        temp = current.get("temperature", "N/A")
-        wind = current.get("windspeed", "N/A")
-        code = current.get("weathercode", 0)
-        
-        condicion = WEATHER_CODES.get(code, "🌡 Clima variable")
-        reporte = f"🌤 *Clima actual en {nombre_lugar}:*\n\n• Estado: {condicion}\n• Temperatura: `{temp}°C`\n• Viento: `{wind} km/h`"
-        return reporte, code, nombre_lugar
-    except Exception:
-        return f"❌ Error de conexión al consultar el clima.", None, None
+            condicion = WEATHER_CODES.get(code, "🌡 Clima variable")
+            reporte = f"🌤 *Clima actual en {nombre_lugar}:*\n\n• Estado: {condicion}\n• Temperatura: `{temp}°C`\n• Viento: `{wind} km/h`"
+            return reporte, code, nombre_lugar
+        except Exception:
+            if intento == 1:
+                return f"❌ Error de conexión al consultar el clima.", None, None
+    return f"❌ Error de conexión al consultar el clima.", None, None
 
 # --- FUNCIONES DE COMANDOS INDIVIDUALES ---
 
@@ -132,9 +137,31 @@ async def ayuda_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🆔 `/id` - Ver ID y perfil de Telegram\n"
         "🔔 `/alerta_lluvia` - Activar avisos automáticos de lluvia\n"
         "🚨 `/alerta_sismo` - Activar avisos automáticos de sismos\n"
+        "📊 `/estado` - Ver tus alertas configuradas\n"
+        "⚡ `/probar_alerta` - Enviar una alerta de prueba\n"
         "📜 `/reglas` - Ver las reglas del grupo"
     )
     await update.message.reply_text(texto_ayuda, parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+
+async def estado_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    clima_activo = SUSCRIPTORES_CLIMA.get(user_id, "❌ No configurada")
+    sismo_activo = SUSCRIPTORES_SISMO.get(user_id, {}).get("nombre", "❌ No configurada")
+
+    mensaje = (
+        "📊 *Estado de tus Alertas Automáticas*\n\n"
+        f"🌧 *Alerta de Lluvia:* `{clima_activo}`\n"
+        f"🚨 *Alerta de Sismos:* `{sismo_activo}`\n\n"
+        "Si deseas cambiarlas, vuelve a usar `/alerta_lluvia` o `/alerta_sismo`."
+    )
+    await update.message.reply_text(mensaje, parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+
+async def probar_alerta_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "⚡ *¡Prueba de alerta exitosa!*\nSi puedes ver este mensaje, las notificaciones automáticas y el canal de comunicación con tu bot funcionan perfectamente.",
+        parse_mode="Markdown",
+        reply_markup=obtener_teclado_principal()
+    )
 
 async def calc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -241,7 +268,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = update.message.text.strip()
     estado = ESTADOS_USUARIO.get(user_id)
 
-    # Capturar clics de botones del teclado táctil que incluyen comandos directos
+    # Capturar clics de botones del teclado táctil
     if texto in ["🔢 /calc", "/calc"]:
         await calc_command(update, context)
         return
@@ -266,11 +293,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif texto in ["🚨 /alerta_sismo", "/alerta_sismo"]:
         await alerta_sismo_command(update, context)
         return
+    elif texto in ["📊 /estado", "/estado"]:
+        await estado_command(update, context)
+        return
+    elif texto in ["⚡ /probar_alerta", "/probar_alerta"]:
+        await probar_alerta_command(update, context)
+        return
     elif texto in ["📋 /ayuda", "/ayuda"]:
         await ayuda_command(update, context)
         return
 
-    # Procesamiento de estados pendientes (respuestas del usuario a los comandos anteriores)
+    # Procesamiento de estados pendientes
     if estado == "esperando_calc":
         ESTADOS_USUARIO[user_id] = None
         try:
@@ -314,7 +347,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ESTADOS_USUARIO[user_id] = None
         lat, lon, ubicacion_oficial = obtener_coordenadas(texto)
         if lat:
-            SUSCRIPTORES_CLIMA[user_id] = texto
+            SUSCRIPTORES_CLIMA[user_id] = ubicacion_oficial
             await update.message.reply_text(
                 f"✅ *¡Alerta de lluvia activada!*\nTe avisaré si detecto precipitaciones en *{ubicacion_oficial}*.",
                 parse_mode="Markdown",
@@ -361,7 +394,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    # Respuesta por defecto si no hay ningún estado pendiente
     await update.message.reply_text(
         "Selecciona una opción del menú táctil o escribe `/ayuda` para ver las opciones disponibles:",
         reply_markup=obtener_teclado_principal()
@@ -441,7 +473,7 @@ def main():
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # Registro de todos los CommandHandlers individuales
+    # Registro de todos los CommandHandlers
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("ayuda", ayuda_command))
     app.add_handler(CommandHandler("calc", calc_command))
@@ -452,6 +484,8 @@ def main():
     app.add_handler(CommandHandler("id", id_command))
     app.add_handler(CommandHandler("alerta_lluvia", alerta_lluvia_command))
     app.add_handler(CommandHandler("alerta_sismo", alerta_sismo_command))
+    app.add_handler(CommandHandler("estado", estado_command))
+    app.add_handler(CommandHandler("probar_alerta", probar_alerta_command))
     app.add_handler(CommandHandler("reglas", reglas_command))
 
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bienvenida_nuevo_usuario))
@@ -471,7 +505,7 @@ def main():
     scheduler.add_job(lambda: verificar_sismos_background(app), 'interval', minutes=10)
     scheduler.start()
 
-    print("🤖 Bot con todos los comandos y alertas configurados correctamente...")
+    print("🤖 Bot con comandos de estado y prueba configurados...")
     app.run_polling()
 
 if __name__ == "__main__":
