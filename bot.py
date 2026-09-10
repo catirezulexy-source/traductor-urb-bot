@@ -312,8 +312,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif estado == "esperando_alerta_lluvia":
         ESTADOS_USUARIO[user_id] = None
-        _, _, ubicacion_oficial = obtener_clima_real(texto)
-        if ubicacion_oficial:
+        lat, lon, ubicacion_oficial = obtener_coordenadas(texto)
+        if lat:
             SUSCRIPTORES_CLIMA[user_id] = texto
             await update.message.reply_text(
                 f"✅ *¡Alerta de lluvia activada!*\nTe avisaré si detecto precipitaciones en *{ubicacion_oficial}*.",
