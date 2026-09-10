@@ -39,37 +39,61 @@ def obtener_teclado_principal():
     teclado = [
         [KeyboardButton("🔢 /calc"), KeyboardButton("🔑 /pass")],
         [KeyboardButton("📝 /nota"), KeyboardButton("🌤 /tiempo")],
-        [KeyboardButton("📲 /wa"), KeyboardButton("🆔 /id")]
+        [KeyboardButton("📲 /wa"), KeyboardButton("🆔 /id")],
+        [KeyboardButton("🔗 /short")]
     ]
     return ReplyKeyboardMarkup(teclado, resize_keyboard=True)
+
+def acortar_para_downloader(url_larga):
+    try:
+        data = urllib.parse.urlencode({'url': url_larga}).encode('utf-8')
+        req = urllib.request.Request(
+            "https://go.aftvnews.com/shorten",
+            data=data,
+            headers={'User-Agent': 'Mozilla/5.0'}
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resultado = resp.read().decode('utf-8').strip()
+            codigo_numerico = ''.join(filter(str.isdigit, resultado))
+            if codigo_numerico:
+                return (
+                    f"✅ *¡Código generado con éxito!*\n\n"
+                    f"🔢 *Código Downloader:* `{codigo_numerico}`\n"
+                    f"🌐 *Enlace directo:* `aftv.news/{codigo_numerico}`\n\n"
+                    f"💡 _Ingresa los números directamente en la app Downloader de tu TV._"
+                )
+            return "⚠️ No se pudo extraer un código numérico válido."
+    except Exception as e:
+        print(f"Error acortando URL: {e}")
+        return "❌ Hubo un error al conectar con el servidor de acortado."
 
 def obtener_clima_real(ciudad):
     try:
         ciudad_encoded = urllib.parse.quote(ciudad)
         url_geo = f"https://geocoding-api.open-meteo.com/v1/search?name={ciudad_encoded}&count=1&language=es&format=json"
-        
+
         req_geo = urllib.request.Request(url_geo, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req_geo, timeout=5) as resp:
             data_geo = json.loads(resp.read().decode())
-        
+
         if not data_geo.get("results"):
             return f"❌ No se encontró la ciudad/país: *{ciudad}*"
-            
+
         lugar = data_geo["results"][0]
         lat, lon = lugar["latitude"], lugar["longitude"]
         nombre_lugar = lugar.get("name", ciudad)
         pais = lugar.get("country", "")
-        
+
         url_weather = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
         req_weather = urllib.request.Request(url_weather, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req_weather, timeout=5) as resp:
             data_weather = json.loads(resp.read().decode())
-            
+
         current = data_weather.get("current_weather", {})
         temp = current.get("temperature", "N/A")
         wind = current.get("windspeed", "N/A")
         code = current.get("weathercode", 0)
-        
+
         condicion = WEATHER_CODES.get(code, "🌡 Clima variable")
         ubicacion_str = f"{nombre_lugar}, {pais}" if pais else nombre_lugar
         return f"🌤 *Clima actual en {ubicacion_str}:*\n\n• Estado: {condicion}\n• Temperatura: `{temp}°C`\n• Viento: `{wind} km/h`"
@@ -111,7 +135,7 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ESTADOS_USUARIO[user.id] = None
     username = f"@{user.username}" if user.username else "Sin username público"
     enlace_perfil = f"https://t.me/{user.username}" if user.username else "No disponible (crea un @username en tus ajustes)"
-    
+
     info_perfil = (
         f"👤 *Información de tu Perfil de Telegram*\n\n"
         f"🆔 *ID Numérico:* `{user.id}`\n"
@@ -119,6 +143,10 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔗 *Enlace Directo:* {enlace_perfil}"
     )
     await update.message.reply_text(info_perfil, parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+
+async def cmd_short(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ESTADOS_USUARIO[update.effective_user.id] = "esperando_short"
+    await update.message.reply_text("🔗 *Acortador para Downloader*\n\nEscribe o pega el enlace URL largo que deseas acortar a un código numérico:", parse_mode="Markdown")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -146,6 +174,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     elif texto == "🆔 /id":
         await cmd_id(update, context)
+        return
+    elif texto == "🔗 /short":
+        await cmd_short(update, context)
         return
 
     # Procesamiento de estados pendientes de entrada de texto
@@ -182,6 +213,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ El número ingresado es muy corto o no es válido.", reply_markup=obtener_teclado_principal())
         return
 
+    elif estado == "esperando_short":
+        ESTADOS_USUARIO[user_id] = None
+        if texto.startswith("http://") or texto.startswith("https://"):
+            respuesta_short = acortar_para_downloader(texto)
+            await update.message.reply_text(respuesta_short, parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+        else:
+            await update.message.reply_text("❌ URL no válida. Asegúrate de incluir `http://` o `https://`.", parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+        return
+
     await update.message.reply_text("Selecciona una opción del menú para comenzar:", reply_markup=obtener_teclado_principal())
 
 def main():
@@ -199,6 +239,7 @@ def main():
     app.add_handler(CommandHandler("tiempo", cmd_tiempo))
     app.add_handler(CommandHandler("wa", cmd_wa))
     app.add_handler(CommandHandler("id", cmd_id))
+    app.add_handler(CommandHandler("short", cmd_short))
 
     # Manejador para botones del teclado táctil e ingreso de datos
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
