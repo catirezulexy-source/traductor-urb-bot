@@ -25,10 +25,9 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
 ESTADOS_USUARIO = {}
 NOTAS_USUARIOS = {}
-# Diccionario para guardar la ciudad favorita de cada usuario para las alertas de lluvia: {user_id: "Ciudad"}
 SUSCRIPTORES_CLIMA = {}
+SUSCRIPTORES_SISMO = {}
 
-# Mensaje de bienvenida y reglas por defecto para grupos
 MENSAJE_REGLAS = (
     "📜 *Reglas del Grupo*:\n\n"
     "1️⃣ Mantén el respeto hacia todos los miembros.\n"
@@ -37,7 +36,6 @@ MENSAJE_REGLAS = (
     "¡Disfruta tu estancia y participa con confianza! 🤖"
 )
 
-# Mapeo simple de códigos de clima de Open-Meteo
 WEATHER_CODES = {
     0: "☀️ Despejado",
     1: "🌤 Principalmente despejado",
@@ -60,7 +58,6 @@ WEATHER_CODES = {
     95: "🌩 Tormenta eléctrica"
 }
 
-# Códigos de Open-Meteo que se consideran lluvia o tormenta
 CODIGOS_LLUVIA = [51, 53, 55, 61, 63, 65, 80, 81, 82, 95]
 
 def obtener_teclado_principal():
@@ -68,28 +65,33 @@ def obtener_teclado_principal():
         [KeyboardButton("🔢 /calc"), KeyboardButton("🔑 /pass")],
         [KeyboardButton("📝 /nota"), KeyboardButton("🌤 /tiempo")],
         [KeyboardButton("📲 /wa"), KeyboardButton("🆔 /id")],
-        [KeyboardButton("🔔 /alerta_lluvia")]
+        [KeyboardButton("🔔 /alerta_lluvia"), KeyboardButton("🚨 /alerta_sismo")],
+        [KeyboardButton("📋 /ayuda")]
     ]
     return ReplyKeyboardMarkup(teclado, resize_keyboard=True)
 
-def obtener_clima_real(ciudad):
+def obtener_coordenadas(ciudad):
     try:
         ciudad_encoded = urllib.parse.quote(ciudad)
         url_geo = f"https://geocoding-api.open-meteo.com/v1/search?name={ciudad_encoded}&count=1&language=es&format=json"
-        
         req_geo = urllib.request.Request(url_geo, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req_geo, timeout=10) as resp:
             data_geo = json.loads(resp.read().decode())
         
         if not data_geo.get("results"):
-            return f"❌ No se encontró la ciudad/país: *{ciudad}*", None, None
+            return None, None, None
             
         lugar = data_geo["results"][0]
-        lat = lugar["latitude"]
-        lon = lugar["longitude"]
-        nombre_lugar = lugar.get("name", ciudad)
-        pais = lugar.get("country", "")
-        
+        return lugar["latitude"], lugar["longitude"], lugar.get("name", ciudad)
+    except Exception:
+        return None, None, None
+
+def obtener_clima_real(ciudad):
+    try:
+        lat, lon, nombre_lugar = obtener_coordenadas(ciudad)
+        if not lat:
+            return f"❌ No se encontró la ciudad/país: *{ciudad}*", None, None
+            
         url_weather = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
         req_weather = urllib.request.Request(url_weather, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req_weather, timeout=10) as resp:
@@ -101,23 +103,114 @@ def obtener_clima_real(ciudad):
         code = current.get("weathercode", 0)
         
         condicion = WEATHER_CODES.get(code, "🌡 Clima variable")
-        ubicacion_str = f"{nombre_lugar}, {pais}" if pais else nombre_lugar
-        
-        reporte = f"🌤 *Clima actual en {ubicacion_str}:*\n\n• Estado: {condicion}\n• Temperatura: `{temp}°C`\n• Viento: `{wind} km/h`"
-        return reporte, code, ubicacion_str
-    except Exception as e:
-        print(f"❌ Error detallado en clima para '{ciudad}': {repr(e)}")
+        reporte = f"🌤 *Clima actual en {nombre_lugar}:*\n\n• Estado: {condicion}\n• Temperatura: `{temp}°C`\n• Viento: `{wind} km/h`"
+        return reporte, code, nombre_lugar
+    except Exception:
         return f"❌ Error de conexión al consultar el clima.", None, None
+
+# --- FUNCIONES DE COMANDOS INDIVIDUALES ---
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje = (
         "🤖 *Bienvenido al Menú Principal*\n\n"
-        "Toca cualquiera de los botones de abajo para ejecutar una función al instante."
+        "Toca cualquiera de los botones de abajo o usa `/ayuda` para ver la lista de comandos disponibles."
     )
     await update.message.reply_text(
         mensaje,
         parse_mode="Markdown",
         reply_markup=obtener_teclado_principal()
+    )
+
+async def ayuda_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto_ayuda = (
+        "🛠 *Lista de Comandos Disponibles:*\n\n"
+        "🔢 `/calc` - Calculadora rápida\n"
+        "🔑 `/pass` - Generar contraseña segura\n"
+        "📝 `/nota` - Guardar y consultar notas\n"
+        "🌤 `/tiempo` - Consultar pronóstico del tiempo\n"
+        "📲 `/wa` - Generar enlace de WhatsApp\n"
+        "🆔 `/id` - Ver ID y perfil de Telegram\n"
+        "🔔 `/alerta_lluvia` - Activar avisos automáticos de lluvia\n"
+        "🚨 `/alerta_sismo` - Activar avisos automáticos de sismos\n"
+        "📜 `/reglas` - Ver las reglas del grupo"
+    )
+    await update.message.reply_text(texto_ayuda, parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+
+async def calc_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    ESTADOS_USUARIO[user_id] = "esperando_calc"
+    await update.message.reply_text("🔢 *Calculadora Rápida*\nEscribe la operación matemática (Ejemplo: `50+20*2`):", parse_mode="Markdown")
+
+async def pass_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    ESTADOS_USUARIO[user_id] = None
+    caracteres = string.ascii_letters + string.digits + "!@#$%&*"
+    password = ''.join(random.choice(caracteres) for _ in range(12))
+    await update.message.reply_text(
+        f"🔑 *Contraseña Segura Generada:*\n`{password}`",
+        parse_mode="Markdown",
+        reply_markup=obtener_teclado_principal()
+    )
+
+async def nota_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    nota_actual = NOTAS_USUARIOS.get(user_id, "No tienes notas guardadas aún.")
+    ESTADOS_USUARIO[user_id] = "esperando_nota"
+    await update.message.reply_text(
+        f"📝 *Tu nota actual:*\n{nota_actual}\n\nEscribe el nuevo texto que deseas guardar:",
+        parse_mode="Markdown",
+        reply_markup=obtener_teclado_principal()
+    )
+
+async def tiempo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    ESTADOS_USUARIO[user_id] = "esperando_tiempo"
+    await update.message.reply_text("🌤 *Pronóstico del tiempo*\nEscribe el nombre de la ciudad o país para consultar el clima real:", parse_mode="Markdown")
+
+async def wa_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    ESTADOS_USUARIO[user_id] = "esperando_wa"
+    await update.message.reply_text(
+        "📲 *Generador de Enlace WhatsApp*\n\n"
+        "Escribe el número de teléfono con el código de país (Ejemplo: `+5215512345678`):",
+        parse_mode="Markdown"
+    )
+
+async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    user_id = user.id
+    ESTADOS_USUARIO[user_id] = None
+    username = f"@{user.username}" if user.username else "Sin username público"
+    enlace_perfil = f"https://t.me/{user.username}" if user.username else "No disponible"
+    
+    info_perfil = (
+        f"👤 *Información de tu Perfil de Telegram*\n\n"
+        f"🆔 *ID Numérico:* `{user_id}`\n"
+        f"👤 *Usuario:* {username}\n"
+        f"🔗 *Enlace Directo:* {enlace_perfil}"
+    )
+    await update.message.reply_text(
+        info_perfil,
+        parse_mode="Markdown",
+        reply_markup=obtener_teclado_principal()
+    )
+
+async def alerta_lluvia_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    ESTADOS_USUARIO[user_id] = "esperando_alerta_lluvia"
+    await update.message.reply_text(
+        "🔔 *Configurar Alerta Automática de Lluvia*\n\n"
+        "Escribe el nombre de tu ciudad para avisarte automáticamente si comienza a llover:",
+        parse_mode="Markdown"
+    )
+
+async def alerta_sismo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    ESTADOS_USUARIO[user_id] = "esperando_alerta_sismo"
+    await update.message.reply_text(
+        "🚨 *Configurar Alerta Automática de Sismos*\n\n"
+        "Escribe el nombre de tu ciudad o país para avisarte si ocurre un sismo relevante cerca:",
+        parse_mode="Markdown"
     )
 
 async def reglas_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -138,84 +231,46 @@ async def bienvenida_nuevo_usuario(update: Update, context: ContextTypes.DEFAULT
         )
         await update.message.reply_text(saludo, parse_mode="Markdown")
 
+# --- MANEJADOR DE TEXTOS Y ESTADOS PENDIENTES ---
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
-    user = update.effective_user
-    user_id = user.id
+    user_id = update.effective_user.id
     texto = update.message.text.strip()
     estado = ESTADOS_USUARIO.get(user_id)
 
-    # 1. COMANDOS DEL MENÚ PRINCIPAL
+    # Capturar clics de botones del teclado táctil que incluyen comandos directos
     if texto in ["🔢 /calc", "/calc"]:
-        ESTADOS_USUARIO[user_id] = "esperando_calc"
-        await update.message.reply_text("Escribe la operación matemática (Ejemplo: 50+20*2):")
+        await calc_command(update, context)
         return
-
     elif texto in ["🔑 /pass", "/pass"]:
-        ESTADOS_USUARIO[user_id] = None
-        caracteres = string.ascii_letters + string.digits + "!@#$%&*"
-        password = ''.join(random.choice(caracteres) for _ in range(12))
-        await update.message.reply_text(
-            f"🔑 *Contraseña Segura Generada:*\n`{password}`",
-            parse_mode="Markdown",
-            reply_markup=obtener_teclado_principal()
-        )
+        await pass_command(update, context)
         return
-
     elif texto in ["📝 /nota", "/nota"]:
-        nota_actual = NOTAS_USUARIOS.get(user_id, "No tienes notas guardadas aún.")
-        ESTADOS_USUARIO[user_id] = "esperando_nota"
-        await update.message.reply_text(
-            f"📝 *Tu nota actual:*\n{nota_actual}\n\nEscribe el nuevo texto que deseas guardar:",
-            parse_mode="Markdown",
-            reply_markup=obtener_teclado_principal()
-        )
+        await nota_command(update, context)
         return
-
     elif texto in ["🌤 /tiempo", "/tiempo"]:
-        ESTADOS_USUARIO[user_id] = "esperando_tiempo"
-        await update.message.reply_text("Escribe el nombre de la ciudad o país para consultar el clima real:")
+        await tiempo_command(update, context)
         return
-
-    elif texto in ["🔔 /alerta_lluvia", "/alerta_lluvia"]:
-        ESTADOS_USUARIO[user_id] = "esperando_alerta_lluvia"
-        await update.message.reply_text(
-            "🔔 *Configurar Alerta Automática de Lluvia*\n\n"
-            "Escribe el nombre de tu ciudad para avisarte automáticamente si comienza a llover:",
-            parse_mode="Markdown"
-        )
-        return
-
     elif texto in ["📲 /wa", "/wa"]:
-        ESTADOS_USUARIO[user_id] = "esperando_wa"
-        await update.message.reply_text(
-            "📲 *Generador de Enlace WhatsApp*\n\n"
-            "Escribe el número de teléfono con el código de país (Ejemplo: `+5215512345678`):",
-            parse_mode="Markdown"
-        )
+        await wa_command(update, context)
         return
-
     elif texto in ["🆔 /id", "/id"]:
-        ESTADOS_USUARIO[user_id] = None
-        username = f"@{user.username}" if user.username else "Sin username público"
-        enlace_perfil = f"https://t.me/{user.username}" if user.username else "No disponible"
-        
-        info_perfil = (
-            f"👤 *Información de tu Perfil de Telegram*\n\n"
-            f"🆔 *ID Numérico:* `{user_id}`\n"
-            f"👤 *Usuario:* {username}\n"
-            f"🔗 *Enlace Directo:* {enlace_perfil}"
-        )
-        await update.message.reply_text(
-            info_perfil,
-            parse_mode="Markdown",
-            reply_markup=obtener_teclado_principal()
-        )
+        await id_command(update, context)
+        return
+    elif texto in ["🔔 /alerta_lluvia", "/alerta_lluvia"]:
+        await alerta_lluvia_command(update, context)
+        return
+    elif texto in ["🚨 /alerta_sismo", "/alerta_sismo"]:
+        await alerta_sismo_command(update, context)
+        return
+    elif texto in ["📋 /ayuda", "/ayuda"]:
+        await ayuda_command(update, context)
         return
 
-    # 2. PROCESAMIENTO DE ESTADOS PENDIENTES
+    # Procesamiento de estados pendientes (respuestas del usuario a los comandos anteriores)
     if estado == "esperando_calc":
         ESTADOS_USUARIO[user_id] = None
         try:
@@ -261,13 +316,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if ubicacion_oficial:
             SUSCRIPTORES_CLIMA[user_id] = texto
             await update.message.reply_text(
-                f"✅ *¡Alerta activada!*\nTe avisaré automáticamente si detecto lluvia o tormenta en *{ubicacion_oficial}*.",
+                f"✅ *¡Alerta de lluvia activada!*\nTe avisaré si detecto precipitaciones en *{ubicacion_oficial}*.",
                 parse_mode="Markdown",
                 reply_markup=obtener_teclado_principal()
             )
         else:
             await update.message.reply_text(
                 "❌ No pude verificar esa ciudad. Inténtalo de nuevo con `/alerta_lluvia`.",
+                reply_markup=obtener_teclado_principal()
+            )
+        return
+
+    elif estado == "esperando_alerta_sismo":
+        ESTADOS_USUARIO[user_id] = None
+        lat, lon, ubicacion_oficial = obtener_coordenadas(texto)
+        if lat:
+            SUSCRIPTORES_SISMO[user_id] = {"lat": lat, "lon": lon, "nombre": ubicacion_oficial}
+            await update.message.reply_text(
+                f"✅ *¡Alerta de sismos activada!*\nTe avisaré si ocurre un sismo relevante cerca de *{ubicacion_oficial}*.",
+                parse_mode="Markdown",
+                reply_markup=obtener_teclado_principal()
+            )
+        else:
+            await update.message.reply_text(
+                "❌ No pude ubicar esa zona. Inténtalo de nuevo con `/alerta_sismo`.",
                 reply_markup=obtener_teclado_principal()
             )
         return
@@ -289,46 +361,102 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    # 3. RESPUESTA POR DEFECTO
+    # Respuesta por defecto si no hay ningún estado pendiente
     await update.message.reply_text(
-        "Selecciona una opción del menú táctil para comenzar:",
+        "Selecciona una opción del menú táctil o escribe `/ayuda` para ver las opciones disponibles:",
         reply_markup=obtener_teclado_principal()
     )
 
-# Función ejecutada en segundo plano por el planificador para revisar la lluvia
+# --- TAREAS AUTOMÁTICAS EN SEGUNDO PLANO ---
+
 def verificar_lluvia_background(application):
     if not SUSCRIPTORES_CLIMA:
         return
-        
-    print("🔍 Ejecutando verificación automática de lluvia para los usuarios suscritos...")
     loop = application.bot_data.get("loop")
-    
     for user_id, ciudad in list(SUSCRIPTORES_CLIMA.items()):
         try:
             _, code, ubicacion_oficial = obtener_clima_real(ciudad)
             if code in CODIGOS_LLUVIA:
-                mensaje_alerta = f"🌧 *¡Alerta de Lluvia!* 🌧\n\nSe detectaron precipitaciones actuales en *{ubicacion_oficial}* ({WEATHER_CODES.get(code)}). ¡No olvides tu paraguas!"
-                # Enviar mensaje asíncrono desde el hilo del planificador
+                mensaje_alerta = f"🌧 *¡Alerta de Lluvia!* 🌧\n\nSe detectaron precipitaciones actuales en *{ubicacion_oficial}* ({WEATHER_CODES.get(code)}). ¡Toma precauciones!"
                 if loop and loop.is_running():
                     application.bot.send_message(chat_id=user_id, text=mensaje_alerta, parse_mode="Markdown")
         except Exception as e:
-            print(f"❌ Error al verificar alerta automática para usuario {user_id}: {e}")
+            print(f"❌ Error en alerta de lluvia: {e}")
+
+def verificar_sismos_background(application):
+    if not SUSCRIPTORES_SISMO:
+        return
+    loop = application.bot_data.get("loop")
+    try:
+        url_sismos = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.0_hour.geojson"
+        req = urllib.request.Request(url_sismos, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+            
+        sismos = data.get("features", [])
+        if not sismos:
+            return
+
+        import math
+        def calcular_distancia(lat1, lon1, lat2, lon2):
+            R = 6371
+            dlat = math.radians(lat2 - lat1)
+            dlon = math.radians(lon2 - lon1)
+            a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+            c = 2 * math.asin(math.sqrt(a))
+            return R * c
+
+        for user_id, datos in list(SUSCRIPTORES_SISMO.items()):
+            u_lat = datos["lat"]
+            u_lon = datos["lon"]
+            u_nombre = datos["nombre"]
+
+            for sismo in sismos:
+                props = sismo.get("properties", {})
+                coords = sismo.get("geometry", {}).get("coordinates", [0, 0, 0])
+                s_lon, s_lat = coords[0], coords[1]
+                mag = props.get("mag", 0)
+                lugar_sismo = props.get("place", "Zona desconocida")
+                
+                distancia = calcular_distancia(u_lat, u_lon, s_lat, s_lon)
+                if distancia <= 500:
+                    mensaje_alerta = (
+                        f"🚨 *¡ALERTA DE SISMO DETECTADO!* 🚨\n\n"
+                        f"• *Magnitud:* `{mag}`\n"
+                        f"• *Ubicación del Epicentro:* {lugar_sismo}\n"
+                        f"• *Distancia aproximada a tu zona ({u_nombre}):* ~`{int(distancia)} km`\n\n"
+                        f"Mantén la calma y sigue los protocolos de seguridad."
+                    )
+                    if loop and loop.is_running():
+                        application.bot.send_message(chat_id=user_id, text=mensaje_alerta, parse_mode="Markdown")
+    except Exception as e:
+        print(f"❌ Error en alerta de sismos: {e}")
+
+# --- FUNCIÓN PRINCIPAL ---
 
 def main():
-    # Hilo para Flask
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # Comandos y eventos
+    # Registro de todos los CommandHandlers individuales
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("ayuda", ayuda_command))
+    app.add_handler(CommandHandler("calc", calc_command))
+    app.add_handler(CommandHandler("pass", pass_command))
+    app.add_handler(CommandHandler("nota", nota_command))
+    app.add_handler(CommandHandler("tiempo", tiempo_command))
+    app.add_handler(CommandHandler("wa", wa_command))
+    app.add_handler(CommandHandler("id", id_command))
+    app.add_handler(CommandHandler("alerta_lluvia", alerta_lluvia_command))
+    app.add_handler(CommandHandler("alerta_sismo", alerta_sismo_command))
     app.add_handler(CommandHandler("reglas", reglas_command))
+
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bienvenida_nuevo_usuario))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_message))
 
-    # Configurar el planificador en segundo plano (revisa el clima cada 1 hora automáticamente)
     import asyncio
     try:
         loop = asyncio.get_running_loop()
@@ -339,11 +467,11 @@ def main():
     app.bot_data["loop"] = loop
 
     scheduler = BackgroundScheduler()
-    # Intervalo de revisión: puedes cambiar 'hours=1' por 'minutes=30' si deseas que revise más seguido
     scheduler.add_job(lambda: verificar_lluvia_background(app), 'interval', hours=1)
+    scheduler.add_job(lambda: verificar_sismos_background(app), 'interval', minutes=10)
     scheduler.start()
 
-    print("🤖 Bot y sistemas de tareas en segundo plano iniciados correctamente...")
+    print("🤖 Bot con todos los comandos y alertas configurados correctamente...")
     app.run_polling()
 
 if __name__ == "__main__":
