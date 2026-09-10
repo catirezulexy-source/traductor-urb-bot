@@ -36,7 +36,7 @@ def obtener_teclado_principal():
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje = (
         "🤖 *Bienvenido al Menú Principal*\n\n"
-        "Toca cualquiera de los botones de abajo para ejecutar una función, envíame una nota de voz o simplemente escríbeme cualquier pregunta para responderte con IA."
+        "Toca cualquiera de los botones de abajo para ejecutar una función, envíame una nota de voz para guardarla automáticamente o escríbeme cualquier duda para responderte con IA."
     )
     await update.message.reply_text(
         mensaje,
@@ -120,13 +120,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
     texto = update.message.text.strip()
+    estado = ESTADOS_USUARIO.get(user_id)
 
-    if texto == "🔢 /calc" or texto == "/calc":
+    # 1. COMANDOS PRINCIPALES DEL MENÚ
+    if texto in ["🔢 /calc", "/calc"]:
         ESTADOS_USUARIO[user_id] = "esperando_calc"
         await update.message.reply_text("Escribe la operación matemática (Ejemplo: 50+20*2):")
         return
 
-    elif texto == "🔑 /pass" or texto == "/pass":
+    elif texto in ["🔑 /pass", "/pass"]:
         ESTADOS_USUARIO[user_id] = None
         caracteres = string.ascii_letters + string.digits + "!@#$%&*"
         password = ''.join(random.choice(caracteres) for _ in range(12))
@@ -137,7 +139,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    elif texto == "📝 /nota" or texto == "/nota":
+    elif texto in ["📝 /nota", "/nota"]:
         nota_actual = NOTAS_USUARIOS.get(user_id, "No tienes notas guardadas aún.")
         ESTADOS_USUARIO[user_id] = "esperando_nota"
         await update.message.reply_text(
@@ -146,13 +148,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    elif texto == "🌤 /tiempo" or texto == "/tiempo":
+    elif texto in ["🌤 /tiempo", "/tiempo"]:
         ESTADOS_USUARIO[user_id] = "esperando_tiempo"
         await update.message.reply_text("Escribe el nombre de la ciudad para consultar el pronóstico:")
         return
 
-    estado = ESTADOS_USUARIO.get(user_id)
-
+    # 2. RESPUESTAS A ESTADOS ACTIVOS (Cálculo, Nota, Tiempo)
     if estado == "esperando_calc":
         ESTADOS_USUARIO[user_id] = None
         try:
@@ -160,9 +161,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if any(c not in caracteres_permitidos for c in texto):
                 raise ValueError
             resultado = eval(texto)
-            await update.message.reply_text(f"🔢 *Resultado:* {resultado}", parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+            await update.message.reply_text(
+                f"🔢 *Resultado:* {resultado}", 
+                parse_mode="Markdown", 
+                reply_markup=obtener_teclado_principal()
+            )
         except Exception:
-            await update.message.reply_text("Operación matemática no válida.", reply_markup=obtener_teclado_principal())
+            await update.message.reply_text(
+                "Operación matemática no válida.", 
+                reply_markup=obtener_teclado_principal()
+            )
+        return
 
     elif estado == "esperando_nota":
         ESTADOS_USUARIO[user_id] = None
@@ -172,36 +181,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=obtener_teclado_principal()
         )
+        return
 
     elif estado == "esperando_tiempo":
         ESTADOS_USUARIO[user_id] = None
         clima_simulado = f"🌤 Clima actual en *{texto.capitalize()}*: 24°C, Parcialmente nublado. Viento a 12 km/h."
-        await update.message.reply_text(clima_simulado, parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+        await update.message.reply_text(
+            clima_simulado, 
+            parse_mode="Markdown", 
+            reply_markup=obtener_teclado_principal()
+        )
+        return
 
-    else:
-        # RESPUESTA GENERAL CON GEMINI IA
-        processing_msg = await update.message.reply_text("🤖 Pensando respuesta...")
-        try:
-            respuesta_ia = await asyncio.to_thread(_preguntar_a_gemini, texto)
-            
-            # Limitar longitud si la respuesta excede el máximo de Telegram
-            if len(respuesta_ia) > 4000:
-                respuesta_ia = respuesta_ia[:4000] + "..."
+    # 3. SI NO HAY COMANDOS NI ESTADOS PENDIENTES, RESPONDE CON GEMINI
+    processing_msg = await update.message.reply_text("🤖 Pensando respuesta...")
+    try:
+        respuesta_ia = await asyncio.to_thread(_preguntar_a_gemini, texto)
+        
+        if len(respuesta_ia) > 4000:
+            respuesta_ia = respuesta_ia[:4000] + "..."
 
-            await context.bot.edit_message_text(
-                chat_id=update.effective_chat.id,
-                message_id=processing_msg.message_id,
-                text=respuesta_ia,
-                reply_markup=obtener_teclado_principal()
-            )
-        except Exception as e:
-            print(f"ERROR EN CHAT GEMINI: {e}")
-            await context.bot.edit_message_text(
-                chat_id=update.effective_chat.id,
-                message_id=processing_msg.message_id,
-                text="❌ Ocurrió un error al consultar con la IA. Inténtalo de nuevo.",
-                reply_markup=obtener_teclado_principal()
-            )
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=processing_msg.message_id,
+            text=respuesta_ia,
+            reply_markup=obtener_teclado_principal()
+        )
+    except Exception as e:
+        print(f"ERROR EN CHAT GEMINI: {e}")
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=processing_msg.message_id,
+            text="❌ Ocurrió un error al consultar con la IA. Inténtalo de nuevo.",
+            reply_markup=obtener_teclado_principal()
+        )
 
 def main():
     flask_thread = threading.Thread(target=run_flask)
