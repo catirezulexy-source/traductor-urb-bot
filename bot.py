@@ -6,15 +6,38 @@ import threading
 import urllib.parse
 import urllib.request
 import json
-from flask import Flask
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
+from flask import Flask, redirect, render_template_string
 
 app_flask = Flask(__name__)
 
+# Diccionario en memoria para almacenar las URLs acortadas
+URL_DB = {}
+
 @app_flask.route('/')
 def home():
-    return "🤖 Bot Asistente Activo."
+    return "🤖 Bot Asistente Activo y Funcional."
+
+# Ruta acortadora propia: cuando Downloader o un navegador abre tudominio.up.railway.app/d/ABCDE
+@app_flask.route('/d/<code_id>')
+def redirect_short_url(code_id):
+    target_url = URL_DB.get(code_id)
+    if target_url:
+        # Redirección directa HTTP 302 + fallback HTML para Downloader
+        html_fallback = f'''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta http-equiv="refresh" content="0;url={target_url}">
+            <title>Redireccionando...</title>
+        </head>
+        <body>
+            <p>Descargando archivo... Si no inicia automáticamente, <a href="{target_url}">haz clic aquí</a>.</p>
+            <script>window.location.href = "{target_url}";</script>
+        </body>
+        </html>
+        '''
+        return render_template_string(html_fallback)
+    return "❌ Enlace no encontrado o expirado.", 404
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -46,32 +69,28 @@ def obtener_teclado_principal():
 
 def acortar_para_downloader(url_larga):
     try:
-        url_encoded = urllib.parse.quote(url_larga)
-        api_url = f"https://is.gd/create.php?format=simple&url={url_encoded}"
+        # Generar un código aleatorio de 4 caracteres
+        code_id = ''.join(random.choices(string.ascii_letters + string.digits, k=4))
+        URL_DB[code_id] = url_larga
         
-        req = urllib.request.Request(
-            api_url,
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
+        # Obtener la URL del dominio que Railway le asigna al proyecto
+        railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN") or os.environ.get("RAILWAY_STATIC_URL")
+        
+        if railway_domain:
+            railway_domain = railway_domain.replace("https://", "").replace("http://", "").strip("/")
+            short_url = f"{railway_domain}/d/{code_id}"
+        else:
+            # En caso de no detectar la variable en Railway todavía:
+            short_url = f"tu-app.up.railway.app/d/{code_id}"
+
+        return (
+            f"✅ *¡Enlace generado localmente con éxito!*\n\n"
+            f"🌐 *Escribe en Downloader:* `{short_url}`\n\n"
+            f"💡 _Ingresa `{short_url}` en la barra superior de la app Downloader de tu Smart TV / FireStick para iniciar la descarga._"
         )
-        
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            shorturl = resp.read().decode('utf-8').strip()
-            
-            if shorturl.startswith("http"):
-                url_limpia = shorturl.replace("https://", "").replace("http://", "")
-                return (
-                    f"✅ *¡Enlace generado con éxito!*\n\n"
-                    f"🌐 *Escribe en Downloader:* `{url_limpia}`\n\n"
-                    f"💡 _En la app Downloader de tu TV ingresa `{url_limpia}` en la barra superior para iniciar la descarga directamente._"
-                )
-
-        return "⚠️ No se pudo generar el enlace acortado."
-
     except Exception as e:
-        print(f"Error acortando URL: {e}")
-        return "❌ Hubo un error al conectar con el servicio de acortado."
+        print(f"Error generando enlace local: {e}")
+        return "❌ Error al generar el enlace local."
 
 def obtener_clima_real(ciudad):
     try:
