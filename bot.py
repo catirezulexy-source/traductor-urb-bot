@@ -58,12 +58,12 @@ def obtener_teclado_principal():
 
 def obtener_clima_real(ciudad):
     try:
-        # 1. Buscar coordenadas de la ciudad
+        # 1. Buscar coordenadas de la ciudad (timeout ampliado a 10s)
         ciudad_encoded = urllib.parse.quote(ciudad)
         url_geo = f"https://geocoding-api.open-meteo.com/v1/search?name={ciudad_encoded}&count=1&language=es&format=json"
         
         req_geo = urllib.request.Request(url_geo, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req_geo, timeout=5) as resp:
+        with urllib.request.urlopen(req_geo, timeout=10) as resp:
             data_geo = json.loads(resp.read().decode())
         
         if not data_geo.get("results"):
@@ -78,7 +78,7 @@ def obtener_clima_real(ciudad):
         # 2. Consultar clima actual con coordenadas
         url_weather = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
         req_weather = urllib.request.Request(url_weather, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req_weather, timeout=5) as resp:
+        with urllib.request.urlopen(req_weather, timeout=10) as resp:
             data_weather = json.loads(resp.read().decode())
             
         current = data_weather.get("current_weather", {})
@@ -91,8 +91,8 @@ def obtener_clima_real(ciudad):
         ubicacion_str = f"{nombre_lugar}, {pais}" if pais else nombre_lugar
         return f"🌤 *Clima actual en {ubicacion_str}:*\n\n• Estado: {condicion}\n• Temperatura: `{temp}°C`\n• Viento: `{wind} km/h`"
     except Exception as e:
-        print(f"Error consultando clima: {e}")
-        return "❌ Hubo un problema al consultar el servicio de clima."
+        print(f"❌ Error detallado en clima para '{ciudad}': {repr(e)}")
+        return f"❌ Error de conexión al consultar el clima (Detalle: {type(e).__name__})."
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje = (
