@@ -3,6 +3,9 @@ import re
 import random
 import string
 import threading
+import urllib.parse
+import urllib.request
+import json
 from flask import Flask
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
@@ -22,6 +25,29 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ESTADOS_USUARIO = {}
 NOTAS_USUARIOS = {}
 
+# Mapeo simple de códigos de clima de Open-Meteo
+WEATHER_CODES = {
+    0: "☀️ Despejado",
+    1: "🌤 Principalmente despejado",
+    2: "⛅ Parcialmente nublado",
+    3: "☁️ Nublado",
+    45: "🌫 Niebla",
+    48: "🌫 Niebla con escarcha",
+    51: "🌦 Llovizna ligera",
+    53: "🌦 Llovizna moderada",
+    55: "🌦 Llovizna densa",
+    61: "🌧 Lluvia ligera",
+    63: "🌧 Lluvia moderada",
+    65: "🌧 Lluvia fuerte",
+    71: "❄️ Nieve ligera",
+    73: "❄️ Nieve moderada",
+    75: "❄️ Nieve fuerte",
+    80: "🌧 Chubascos ligeros",
+    81: "🌧 Chubascos moderados",
+    82: "🌧 Chubascos violentos",
+    95: "🌩 Tormenta eléctrica"
+}
+
 def obtener_teclado_principal():
     teclado = [
         [KeyboardButton("🔢 /calc"), KeyboardButton("🔑 /pass")],
@@ -29,6 +55,44 @@ def obtener_teclado_principal():
         [KeyboardButton("📲 /wa"), KeyboardButton("🆔 /id")]
     ]
     return ReplyKeyboardMarkup(teclado, resize_keyboard=True)
+
+def obtener_clima_real(ciudad):
+    try:
+        # 1. Buscar coordenadas de la ciudad
+        ciudad_encoded = urllib.parse.quote(ciudad)
+        url_geo = f"https://geocoding-api.open-meteo.com/v1/search?name={ciudad_encoded}&count=1&language=es&format=json"
+        
+        req_geo = urllib.request.Request(url_geo, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req_geo, timeout=5) as resp:
+            data_geo = json.loads(resp.read().decode())
+        
+        if not data_geo.get("results"):
+            return f"❌ No se encontró la ciudad/país: *{ciudad}*"
+            
+        lugar = data_geo["results"][0]
+        lat = lugar["latitude"]
+        lon = lugar["longitude"]
+        nombre_lugar = lugar.get("name", ciudad)
+        pais = lugar.get("country", "")
+        
+        # 2. Consultar clima actual con coordenadas
+        url_weather = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
+        req_weather = urllib.request.Request(url_weather, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req_weather, timeout=5) as resp:
+            data_weather = json.loads(resp.read().decode())
+            
+        current = data_weather.get("current_weather", {})
+        temp = current.get("temperature", "N/A")
+        wind = current.get("windspeed", "N/A")
+        code = current.get("weathercode", 0)
+        
+        condicion = WEATHER_CODES.get(code, "🌡 Clima variable")
+        
+        ubicacion_str = f"{nombre_lugar}, {pais}" if pais else nombre_lugar
+        return f"🌤 *Clima actual en {ubicacion_str}:*\n\n• Estado: {condicion}\n• Temperatura: `{temp}°C`\n• Viento: `{wind} km/h`"
+    except Exception as e:
+        print(f"Error consultando clima: {e}")
+        return "❌ Hubo un problema al consultar el servicio de clima."
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje = (
@@ -40,41 +104,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
         reply_markup=obtener_teclado_principal()
     )
-
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.voice:
-        return
-
-    user_id = update.effective_user.id
-    processing_msg = await update.message.reply_text("🎙️ Guardando nota de voz...")
-
-    file_path = f"/tmp/temp_voice_{user_id}.ogg"
-    try:
-        voice = update.message.voice
-        file = await context.bot.get_file(voice.file_id)
-        await file.download_to_drive(file_path)
-
-        NOTAS_USUARIOS[user_id] = f"[Nota de voz guardada: {voice.duration} seg]"
-
-        if os.path.exists(file_path):
-            os.remove(file_path)
-
-        await context.bot.edit_message_text(
-            chat_id=update.effective_chat.id,
-            message_id=processing_msg.message_id,
-            text=f"✅ ¡Nota de voz guardada! ({voice.duration} segundos)",
-            reply_markup=obtener_teclado_principal()
-        )
-    except Exception as e:
-        print(f"ERROR EN VOZ: {e}")
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        await context.bot.edit_message_text(
-            chat_id=update.effective_chat.id,
-            message_id=processing_msg.message_id,
-            text="❌ Error al procesar el archivo de voz.",
-            reply_markup=obtener_teclado_principal()
-        )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -106,14 +135,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nota_actual = NOTAS_USUARIOS.get(user_id, "No tienes notas guardadas aún.")
         ESTADOS_USUARIO[user_id] = "esperando_nota"
         await update.message.reply_text(
-            f"📝 Tu nota actual:\n{nota_actual}\n\nEscribe el nuevo texto que deseas guardar:",
+            f"📝 *Tu nota actual:*\n{nota_actual}\n\nEscribe el nuevo texto que deseas guardar:",
+            parse_mode="Markdown",
             reply_markup=obtener_teclado_principal()
         )
         return
 
     elif texto in ["🌤 /tiempo", "/tiempo"]:
         ESTADOS_USUARIO[user_id] = "esperando_tiempo"
-        await update.message.reply_text("Escribe el nombre de la ciudad para consultar el pronóstico:")
+        await update.message.reply_text("Escribe el nombre de la ciudad o país para consultar el clima real:")
         return
 
     elif texto in ["📲 /wa", "/wa"]:
@@ -175,9 +205,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif estado == "esperando_tiempo":
         ESTADOS_USUARIO[user_id] = None
-        clima_simulado = f"🌤 Clima actual en *{texto.capitalize()}*: 24°C, Parcialmente nublado. Viento a 12 km/h."
+        reporte_clima = obtener_clima_real(texto)
         await update.message.reply_text(
-            clima_simulado, 
+            reporte_clima, 
             parse_mode="Markdown", 
             reply_markup=obtener_teclado_principal()
         )
@@ -214,11 +244,9 @@ def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-
