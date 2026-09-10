@@ -26,7 +26,7 @@ def obtener_teclado_principal():
     teclado = [
         [KeyboardButton("🔢 /calc"), KeyboardButton("🔑 /pass")],
         [KeyboardButton("📝 /nota"), KeyboardButton("🌤 /tiempo")],
-        [KeyboardButton("📲 /wa")]
+        [KeyboardButton("📲 /wa"), KeyboardButton("🆔 /id")]
     ]
     return ReplyKeyboardMarkup(teclado, resize_keyboard=True)
 
@@ -80,7 +80,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
-    user_id = update.effective_user.id
+    user = update.effective_user
+    user_id = user.id
     texto = update.message.text.strip()
     estado = ESTADOS_USUARIO.get(user_id)
 
@@ -119,8 +120,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ESTADOS_USUARIO[user_id] = "esperando_wa"
         await update.message.reply_text(
             "📲 *Generador de Enlace WhatsApp*\n\n"
-            "Escribe el número de teléfono con el código de país (Ejemplo: `+5215512345678` o `18091234567`):",
+            "Escribe el número de teléfono con el código de país (Ejemplo: `+5215512345678`):",
             parse_mode="Markdown"
+        )
+        return
+
+    elif texto in ["🆔 /id", "/id"]:
+        ESTADOS_USUARIO[user_id] = None
+        username = f"@{user.username}" if user.username else "Sin username público"
+        enlace_perfil = f"https://t.me/{user.username}" if user.username else "No disponible (crea un @username en tus ajustes)"
+        
+        info_perfil = (
+            f"👤 *Información de tu Perfil de Telegram*\n\n"
+            f"🆔 *ID Numérico:* `{user_id}`\n"
+            f"👤 *Usuario:* {username}\n"
+            f"🔗 *Enlace Directo:* {enlace_perfil}"
+        )
+        await update.message.reply_text(
+            info_perfil,
+            parse_mode="Markdown",
+            reply_markup=obtener_teclado_principal()
         )
         return
 
@@ -166,7 +185,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif estado == "esperando_wa":
         ESTADOS_USUARIO[user_id] = None
-        # Limpiar el número dejando solo dígitos
         solo_numeros = re.sub(r"\D", "", texto)
         if len(solo_numeros) >= 7:
             link_wa = f"https://wa.me/{solo_numeros}"
@@ -203,3 +221,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
