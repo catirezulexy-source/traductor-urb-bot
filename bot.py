@@ -47,18 +47,19 @@ def obtener_teclado_principal():
 def acortar_para_downloader(url_larga):
     try:
         url_encoded = urllib.parse.quote(url_larga)
-        api_url = f"https://is.gd/create.php?format=json&url={url_encoded}"
+        api_url = f"https://is.gd/create.php?format=simple&url={url_encoded}"
         
         req = urllib.request.Request(
             api_url,
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
         )
         
         with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
-            shorturl = data.get("shorturl", "")
+            shorturl = resp.read().decode('utf-8').strip()
             
-            if shorturl:
+            if shorturl.startswith("http"):
                 url_limpia = shorturl.replace("https://", "").replace("http://", "")
                 return (
                     f"✅ *¡Enlace generado con éxito!*\n\n"
