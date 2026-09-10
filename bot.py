@@ -46,44 +46,32 @@ def obtener_teclado_principal():
 
 def acortar_para_downloader(url_larga):
     try:
-        data = urllib.parse.urlencode({'url': url_larga}).encode('utf-8')
+        url_encoded = urllib.parse.quote(url_larga)
+        api_url = f"http://tinyurl.com/api-create.php?url={url_encoded}"
+        
         req = urllib.request.Request(
-            "https://go.aftvnews.com/shorten",
-            data=data,
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                'Content-Type': 'application/x-www-form-urlencoded'
-            }
+            api_url,
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         )
+        
         with urllib.request.urlopen(req, timeout=10) as resp:
-            url_final = resp.geturl()
-            cuerpo = resp.read().decode('utf-8').strip()
+            tiny_url = resp.read().decode('utf-8').strip()
             
-            codigo_match = re.search(r'(\d{5,6})', url_final) or re.search(r'aftv\.news/(\d{5,6})', cuerpo)
-            
-            if codigo_match:
-                codigo_numerico = codigo_match.group(1)
+            if tiny_url.startswith("http"):
+                codigo_corto = tiny_url.split("/")[-1]
+                
                 return (
-                    f"✅ *¡Código generado con éxito!*\n\n"
-                    f"🔢 *Código Downloader:* `{codigo_numerico}`\n"
-                    f"🌐 *Enlace directo:* `aftv.news/{codigo_numerico}`\n\n"
-                    f"💡 _Ingresa los números directamente en la app Downloader de tu TV._"
-                )
-            
-            solo_digitos = re.sub(r'\D', '', cuerpo)
-            if 5 <= len(solo_digitos) <= 6:
-                return (
-                    f"✅ *¡Código generado con éxito!*\n\n"
-                    f"🔢 *Código Downloader:* `{solo_digitos}`\n"
-                    f"🌐 *Enlace directo:* `aftv.news/{solo_digitos}`\n\n"
-                    f"💡 _Ingresa los números directamente en la app Downloader de tu TV._"
+                    f"✅ *¡Enlace generado con éxito!*\n\n"
+                    f"🔢 *Código/ID Downloader:* `{codigo_corto}`\n"
+                    f"🌐 *Enlace corto:* `{tiny_url}`\n\n"
+                    f"💡 _En la app Downloader de tu TV puedes ingresar el código `{codigo_corto}` o la URL `{tiny_url}` directamente._"
                 )
 
-            return "⚠️ No se pudo obtener un código corto válido para esta URL."
+        return "⚠️ No se pudo generar el enlace acortado."
 
     except Exception as e:
         print(f"Error acortando URL: {e}")
-        return "❌ Hubo un error al conectar con el servidor de acortado."
+        return "❌ Hubo un error al conectar con el servicio de acortado."
 
 def obtener_clima_real(ciudad):
     try:
@@ -164,7 +152,7 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_short(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ESTADOS_USUARIO[update.effective_user.id] = "esperando_short"
-    await update.message.reply_text("🔗 *Acortador para Downloader*\n\nEscribe o pega el enlace URL largo que deseas acortar a un código numérico:", parse_mode="Markdown")
+    await update.message.reply_text("🔗 *Acortador para Downloader*\n\nEscribe o pega el enlace URL largo que deseas acortar:", parse_mode="Markdown")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
