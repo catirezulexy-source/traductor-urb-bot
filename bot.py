@@ -45,33 +45,54 @@ def obtener_teclado_principal():
     return ReplyKeyboardMarkup(teclado, resize_keyboard=True)
 
 def acortar_para_downloader(url_larga):
+    headers_browser = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Content-Type': 'application/x-www-form-urlencoded'
+    }
+
+    # Intentar obtener código directo de AFTVnews
+    try:
+        data_post = urllib.parse.urlencode({'url': url_larga}).encode('utf-8')
+        req_aftv = urllib.request.Request("https://go.aftvnews.com/", data=data_post, headers=headers_browser)
+        
+        with urllib.request.urlopen(req_aftv, timeout=8) as resp:
+            html = resp.read().decode('utf-8', errors='ignore')
+            
+            # Buscar el código numérico asignado por AFTVnews
+            match = re.search(r'aftv\.news/(\d+)', html)
+            if match:
+                code_aftv = match.group(1)
+                return (
+                    f"✅ *¡Código Downloader generado con éxito!*\n\n"
+                    f"🔢 *Código Numérico:* `{code_aftv}`\n"
+                    f"🌐 *Enlace AFTV:* `aftv.news/{code_aftv}`\n\n"
+                    f"💡 _En la app Downloader de tu TV ingresa directamente los números `{code_aftv}`._"
+                )
+    except Exception as e:
+        print(f"Error intentando AFTVnews: {e}")
+
+    # Fallback automático a is.gd si AFTVnews bloquea la solicitud
     try:
         url_encoded = urllib.parse.quote(url_larga)
-        api_url = f"http://tinyurl.com/api-create.php?url={url_encoded}"
+        api_url = f"https://is.gd/create.php?format=json&url={url_encoded}"
+        req_isgd = urllib.request.Request(api_url, headers={'User-Agent': headers_browser['User-Agent']})
         
-        req = urllib.request.Request(
-            api_url,
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        )
-        
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            tiny_url = resp.read().decode('utf-8').strip()
+        with urllib.request.urlopen(req_isgd, timeout=8) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            shorturl = data.get("shorturl", "")
             
-            if tiny_url.startswith("http"):
-                codigo_corto = tiny_url.split("/")[-1]
-                
+            if shorturl:
+                url_limpia = shorturl.replace("https://", "").replace("http://", "")
                 return (
                     f"✅ *¡Enlace generado con éxito!*\n\n"
-                    f"🔢 *Código/ID Downloader:* `{codigo_corto}`\n"
-                    f"🌐 *Enlace corto:* `{tiny_url}`\n\n"
-                    f"💡 _En la app Downloader de tu TV puedes ingresar el código `{codigo_corto}` o la URL `{tiny_url}` directamente._"
+                    f"🌐 *Enlace para Downloader:* `{url_limpia}`\n\n"
+                    f"💡 _Escribe `{url_limpia}` directamente en el cuadro de búsqueda de Downloader para comenzar la descarga._"
                 )
-
-        return "⚠️ No se pudo generar el enlace acortado."
-
     except Exception as e:
-        print(f"Error acortando URL: {e}")
-        return "❌ Hubo un error al conectar con el servicio de acortado."
+        print(f"Error en fallback is.gd: {e}")
+
+    return "⚠️ No se pudo acortar el enlace en este momento. Inténtalo de nuevo más tarde."
 
 def obtener_clima_real(ciudad):
     try:
