@@ -13,7 +13,8 @@ app_flask = Flask(__name__)
 @app_flask.route('/')
 def home():
     return "🤖 Bot Asistente Activo."
-                                                  def run_flask():
+
+def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app_flask.run(host="0.0.0.0", port=port)
 
@@ -35,7 +36,7 @@ def obtener_teclado_principal():
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje = (
         "🤖 *Bienvenido al Menú Principal*\n\n"
-        "Toca cualquiera de los botones de abajo para ejecutar una función o envíame una nota de voz para guardarla automáticamente."
+        "Toca cualquiera de los botones de abajo para ejecutar una función, envíame una nota de voz o simplemente escríbeme cualquier pregunta para responderte con IA."
     )
     await update.message.reply_text(
         mensaje,
@@ -53,6 +54,11 @@ def _transcribir_con_gemini(file_path):
     texto = response.text.strip() if response.text else "[Audio vacío]"
     return audio_file_ref, texto
 
+def _preguntar_a_gemini(prompt_texto):
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    response = model.generate_content(prompt_texto)
+    return response.text.strip() if response.text else "No pude procesar una respuesta."
+
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.voice:
         return
@@ -67,7 +73,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file = await context.bot.get_file(voice.file_id)
         await file.download_to_drive(file_path)
 
-        # Ejecutamos Gemini en un hilo separado para no bloquear el bot
         audio_file_ref, texto_transcrito = await asyncio.to_thread(_transcribir_con_gemini, file_path)
 
         if len(texto_transcrito) > 4000:
@@ -174,10 +179,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(clima_simulado, parse_mode="Markdown", reply_markup=obtener_teclado_principal())
 
     else:
-        await update.message.reply_text(
-            "Selecciona una opción del menú táctil de abajo:",
-            reply_markup=obtener_teclado_principal()
-        )
+        # RESPUESTA GENERAL CON GEMINI IA
+        processing_msg = await update.message.reply_text("🤖 Pensando respuesta...")
+        try:
+            respuesta_ia = await asyncio.to_thread(_preguntar_a_gemini, texto)
+            
+            # Limitar longitud si la respuesta excede el máximo de Telegram
+            if len(respuesta_ia) > 4000:
+                respuesta_ia = respuesta_ia[:4000] + "..."
+
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=processing_msg.message_id,
+                text=respuesta_ia,
+                reply_markup=obtener_teclado_principal()
+            )
+        except Exception as e:
+            print(f"ERROR EN CHAT GEMINI: {e}")
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=processing_msg.message_id,
+                text="❌ Ocurrió un error al consultar con la IA. Inténtalo de nuevo.",
+                reply_markup=obtener_teclado_principal()
+            )
 
 def main():
     flask_thread = threading.Thread(target=run_flask)
@@ -193,3 +217,4 @@ def main():
     app.run_polling()
 
 if __name__ == "__main__":
+    main()
