@@ -270,10 +270,13 @@ def main():
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
+    # Comandos y eventos para grupos y privados
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("reglas", reglas_command))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bienvenida_nuevo_usuario))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Manejador de texto normal (Solo responde en chats privados, ignora grupos)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_message))
 
     app.run_polling()
 
