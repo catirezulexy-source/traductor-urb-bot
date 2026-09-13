@@ -58,6 +58,7 @@ WEATHER_CODES = {
     95: "🌩 Tormenta eléctrica"
 }
 
+# Códigos de lluvia corregidos para incluir lloviznas (51, 53, 55)
 CODIGOS_LLUVIA = [51, 53, 55, 61, 63, 65, 80, 81, 82, 95]
 
 def obtener_teclado_principal():
@@ -78,10 +79,10 @@ def obtener_coordenadas(ciudad):
         req_geo = urllib.request.Request(url_geo, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req_geo, timeout=10) as resp:
             data_geo = json.loads(resp.read().decode())
-        
+
         if not data_geo.get("results"):
             return None, None, None
-            
+
         lugar = data_geo["results"][0]
         return lugar["latitude"], lugar["longitude"], lugar.get("name", ciudad)
     except Exception:
@@ -93,18 +94,18 @@ def obtener_clima_real(ciudad):
             lat, lon, nombre_lugar = obtener_coordenadas(ciudad)
             if not lat:
                 return f"❌ No se encontró la ciudad/país: *{ciudad}*", None, None
-                
+
             url_weather = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
             req_weather = urllib.request.Request(url_weather, headers={'User-Agent': 'Mozilla/5.0'})
-            
+
             with urllib.request.urlopen(req_weather, timeout=15) as resp:
                 data_weather = json.loads(resp.read().decode())
-                
+
             current = data_weather.get("current_weather", {})
             temp = current.get("temperature", "N/A")
             wind = current.get("windspeed", "N/A")
             code = current.get("weathercode", 0)
-            
+
             condicion = WEATHER_CODES.get(code, "🌡 Clima variable")
             reporte = f"🌤 *Clima actual en {nombre_lugar}:*\n\n• Estado: {condicion}\n• Temperatura: `{temp}°C`\n• Viento: `{wind} km/h`"
             return reporte, code, nombre_lugar
@@ -209,7 +210,7 @@ async def id_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ESTADOS_USUARIO[user_id] = None
     username = f"@{user.username}" if user.username else "Sin username público"
     enlace_perfil = f"https://t.me/{user.username}" if user.username else "No disponible"
-    
+
     info_perfil = (
         f"👤 *Información de tu Perfil de Telegram*\n\n"
         f"🆔 *ID Numérico:* `{user_id}`\n"
@@ -246,11 +247,11 @@ async def reglas_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def bienvenida_nuevo_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.new_chat_members:
         return
-        
+
     for member in update.message.new_chat_members:
         if member.id == context.bot.id:
             continue
-            
+
         nombre = member.first_name or "Amigo"
         saludo = (
             f"👋 ¡Bienvenido/a al grupo, {nombre}!\n\n"
@@ -312,13 +313,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 raise ValueError
             resultado = eval(texto)
             await update.message.reply_text(
-                f"🔢 *Resultado:* `{resultado}`", 
-                parse_mode="Markdown", 
+                f"🔢 *Resultado:* `{resultado}`",
+                parse_mode="Markdown",
                 reply_markup=obtener_teclado_principal()
             )
         except Exception:
             await update.message.reply_text(
-                "❌ Operación matemática no válida.", 
+                "❌ Operación matemática no válida.",
                 reply_markup=obtener_teclado_principal()
             )
         return
@@ -337,8 +338,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ESTADOS_USUARIO[user_id] = None
         reporte_clima, _, _ = obtener_clima_real(texto)
         await update.message.reply_text(
-            reporte_clima, 
-            parse_mode="Markdown", 
+            reporte_clima,
+            parse_mode="Markdown",
             reply_markup=obtener_teclado_principal()
         )
         return
@@ -424,7 +425,7 @@ def verificar_sismos_background(application):
         req = urllib.request.Request(url_sismos, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
-            
+
         sismos = data.get("features", [])
         if not sismos:
             return
@@ -449,7 +450,7 @@ def verificar_sismos_background(application):
                 s_lon, s_lat = coords[0], coords[1]
                 mag = props.get("mag", 0)
                 lugar_sismo = props.get("place", "Zona desconocida")
-                
+
                 distancia = calcular_distancia(u_lat, u_lon, s_lat, s_lon)
                 if distancia <= 500:
                     mensaje_alerta = (
@@ -497,11 +498,12 @@ def main():
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    
+
     app.bot_data["loop"] = loop
 
     scheduler = BackgroundScheduler()
-    scheduler.add_job(lambda: verificar_lluvia_background(app), 'interval', hours=1)
+    # Verificación de lluvia cada 10 minutos para mayor rapidez
+    scheduler.add_job(lambda: verificar_lluvia_background(app), 'interval', minutes=10)
     scheduler.add_job(lambda: verificar_sismos_background(app), 'interval', minutes=10)
     scheduler.start()
 
