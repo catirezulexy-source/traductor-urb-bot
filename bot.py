@@ -6,6 +6,7 @@ import threading
 import urllib.parse
 import urllib.request
 import json
+import asyncio
 from flask import Flask
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
@@ -405,65 +406,73 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def verificar_lluvia_background(application):
     if not SUSCRIPTORES_CLIMA:
         return
+    
+    async def enviar_alertas():
+        for user_id, ciudad in list(SUSCRIPTORES_CLIMA.items()):
+            try:
+                _, code, ubicacion_oficial = obtener_clima_real(ciudad)
+                if code in CODIGOS_LLUVIA:
+                    mensaje_alerta = f"🌧 *¡Alerta de Lluvia!* 🌧\n\nSe detectaron precipitaciones actuales en *{ubicacion_oficial}* ({WEATHER_CODES.get(code)}). ¡Toma precauciones!"
+                    await application.bot.send_message(chat_id=user_id, text=mensaje_alerta, parse_mode="Markdown")
+            except Exception as e:
+                print(f"❌ Error en alerta de lluvia para {user_id}: {e}")
+
     loop = application.bot_data.get("loop")
-    for user_id, ciudad in list(SUSCRIPTORES_CLIMA.items()):
-        try:
-            _, code, ubicacion_oficial = obtener_clima_real(ciudad)
-            if code in CODIGOS_LLUVIA:
-                mensaje_alerta = f"🌧 *¡Alerta de Lluvia!* 🌧\n\nSe detectaron precipitaciones actuales en *{ubicacion_oficial}* ({WEATHER_CODES.get(code)}). ¡Toma precauciones!"
-                if loop and loop.is_running():
-                    application.bot.send_message(chat_id=user_id, text=mensaje_alerta, parse_mode="Markdown")
-        except Exception as e:
-            print(f"❌ Error en alerta de lluvia: {e}")
+    if loop and loop.is_running():
+        asyncio.run_coroutine_threadsafe(enviar_alertas(), loop)
 
 def verificar_sismos_background(application):
     if not SUSCRIPTORES_SISMO:
         return
+    
+    async def enviar_alertas_sismos():
+        try:
+            url_sismos = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.0_hour.geojson"
+            req = urllib.request.Request(url_sismos, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+
+            sismos = data.get("features", [])
+            if not sismos:
+                return
+
+            import math
+            def calcular_distancia(lat1, lon1, lat2, lon2):
+                R = 6371
+                dlat = math.radians(lat2 - lat1)
+                dlon = math.radians(lon2 - lon1)
+                a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+                c = 2 * math.asin(math.sqrt(a))
+                return R * c
+
+            for user_id, datos in list(SUSCRIPTORES_SISMO.items()):
+                u_lat = datos["lat"]
+                u_lon = datos["lon"]
+                u_nombre = datos["nombre"]
+
+                for sismo in sismos:
+                    props = sismo.get("properties", {})
+                    coords = sismo.get("geometry", {}).get("coordinates", [0, 0, 0])
+                    s_lon, s_lat = coords[0], coords[1]
+                    mag = props.get("mag", 0)
+                    lugar_sismo = props.get("place", "Zona desconocida")
+
+                    distancia = calcular_distancia(u_lat, u_lon, s_lat, s_lon)
+                    if distancia <= 500:
+                        mensaje_alerta = (
+                            f"🚨 *¡ALERTA DE SISMO DETECTADO!* 🚨\n\n"
+                            f"• *Magnitud:* `{mag}`\n"
+                            f"• *Ubicación del Epicentro:* {lugar_sismo}\n"
+                            f"• *Distancia aproximada a tu zona ({u_nombre}):* ~`{int(distancia)} km`\n\n"
+                            f"Mantén la calma y sigue los protocolos de seguridad."
+                        )
+                        await application.bot.send_message(chat_id=user_id, text=mensaje_alerta, parse_mode="Markdown")
+        except Exception as e:
+            print(f"❌ Error en alerta de sismos: {e}")
+
     loop = application.bot_data.get("loop")
-    try:
-        url_sismos = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.0_hour.geojson"
-        req = urllib.request.Request(url_sismos, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-
-        sismos = data.get("features", [])
-        if not sismos:
-            return
-
-        import math
-        def calcular_distancia(lat1, lon1, lat2, lon2):
-            R = 6371
-            dlat = math.radians(lat2 - lat1)
-            dlon = math.radians(lon2 - lon1)
-            a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
-            c = 2 * math.asin(math.sqrt(a))
-            return R * c
-
-        for user_id, datos in list(SUSCRIPTORES_SISMO.items()):
-            u_lat = datos["lat"]
-            u_lon = datos["lon"]
-            u_nombre = datos["nombre"]
-
-            for sismo in sismos:
-                props = sismo.get("properties", {})
-                coords = sismo.get("geometry", {}).get("coordinates", [0, 0, 0])
-                s_lon, s_lat = coords[0], coords[1]
-                mag = props.get("mag", 0)
-                lugar_sismo = props.get("place", "Zona desconocida")
-
-                distancia = calcular_distancia(u_lat, u_lon, s_lat, s_lon)
-                if distancia <= 500:
-                    mensaje_alerta = (
-                        f"🚨 *¡ALERTA DE SISMO DETECTADO!* 🚨\n\n"
-                        f"• *Magnitud:* `{mag}`\n"
-                        f"• *Ubicación del Epicentro:* {lugar_sismo}\n"
-                        f"• *Distancia aproximada a tu zona ({u_nombre}):* ~`{int(distancia)} km`\n\n"
-                        f"Mantén la calma y sigue los protocolos de seguridad."
-                    )
-                    if loop and loop.is_running():
-                        application.bot.send_message(chat_id=user_id, text=mensaje_alerta, parse_mode="Markdown")
-    except Exception as e:
-        print(f"❌ Error en alerta de sismos: {e}")
+    if loop and loop.is_running():
+        asyncio.run_coroutine_threadsafe(enviar_alertas_sismos(), loop)
 
 # --- FUNCIÓN PRINCIPAL ---
 
@@ -492,7 +501,6 @@ def main():
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bienvenida_nuevo_usuario))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_message))
 
-    import asyncio
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
