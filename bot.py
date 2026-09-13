@@ -28,12 +28,13 @@ ESTADOS_USUARIO = {}
 NOTAS_USUARIOS = {}
 SUSCRIPTORES_CLIMA = {}
 SUSCRIPTORES_SISMO = {}
+ULTIMO_CLIMA_USUARIO = {}  # Memoria para rastrear cambios de clima por usuario
 
 MENSAJE_REGLAS = (
     "📜 *Reglas del Grupo*:\n\n"
     "1️⃣ Mantén el respeto hacia todos los miembros.\n"
     "2️⃣ No compartas enlaces de spam o contenido no solicitado.\n"
-    "3️⃣ Usa los canales o temas adecuados para cada conversación.\n\n"
+    "3️⃣ Usa los canales or temas adecuados para cada conversación.\n\n"
     "¡Disfruta tu estancia y participa con confianza! 🤖"
 )
 
@@ -350,6 +351,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lat, lon, ubicacion_oficial = obtener_coordenadas(texto)
         if lat:
             SUSCRIPTORES_CLIMA[user_id] = ubicacion_oficial
+            # Al configurar de nuevo, limpiamos su memoria climática previa para un registro limpio
+            if user_id in ULTIMO_CLIMA_USUARIO:
+                del ULTIMO_CLIMA_USUARIO[user_id]
             await update.message.reply_text(
                 f"✅ *¡Alerta de lluvia activada!*\nTe avisaré si detecto precipitaciones en *{ubicacion_oficial}*.",
                 parse_mode="Markdown",
@@ -411,9 +415,34 @@ def verificar_lluvia_background(application):
         for user_id, ciudad in list(SUSCRIPTORES_CLIMA.items()):
             try:
                 _, code, ubicacion_oficial = obtener_clima_real(ciudad)
-                if code in CODIGOS_LLUVIA:
-                    mensaje_alerta = f"🌧 *¡Alerta de Lluvia!* 🌧\n\nSe detectaron precipitaciones actuales en *{ubicacion_oficial}* ({WEATHER_CODES.get(code)}). ¡Toma precauciones!"
-                    await application.bot.send_message(chat_id=user_id, text=mensaje_alerta, parse_mode="Markdown")
+                if code is None:
+                    continue
+                
+                ultimo_code = ULTIMO_CLIMA_USUARIO.get(user_id)
+
+                # Si es la primera vez que se evalúa este usuario, guardamos el estado sin alertar
+                if ultimo_code is None:
+                    ULTIMO_CLIMA_USUARIO[user_id] = code
+                    continue
+
+                # Si el código del clima cambió respecto a la última revisión
+                if code != ultimo_code:
+                    ULTIMO_CLIMA_USUARIO[user_id] = code  # Actualizamos el estado guardado
+
+                    if code in CODIGOS_LLUVIA:
+                        mensaje_alerta = (
+                            f"🌧 *¡Cambio de clima / Alerta de Lluvia!* 🌧\n\n"
+                            f"El clima en *{ubicacion_oficial}* cambió a: *{WEATHER_CODES.get(code)}*.\n"
+                            f"¡Toma precauciones!"
+                        )
+                        await application.bot.send_message(chat_id=user_id, text=mensaje_alerta, parse_mode="Markdown")
+                    else:
+                        mensaje_aviso = (
+                            f"🌤 *Actualización del Clima*\n\n"
+                            f"El clima en *{ubicacion_oficial}* cambió a: *{WEATHER_CODES.get(code)}*."
+                        )
+                        await application.bot.send_message(chat_id=user_id, text=mensaje_aviso, parse_mode="Markdown")
+
             except Exception as e:
                 print(f"❌ Error en alerta de lluvia para {user_id}: {e}")
 
@@ -510,12 +539,12 @@ def main():
     app.bot_data["loop"] = loop
 
     scheduler = BackgroundScheduler()
-    # Verificación de lluvia cada 10 minutos para mayor rapidez
+    # Verificación de lluvia y clima cada 10 minutos
     scheduler.add_job(lambda: verificar_lluvia_background(app), 'interval', minutes=10)
     scheduler.add_job(lambda: verificar_sismos_background(app), 'interval', minutes=10)
     scheduler.start()
 
-    print("🤖 Bot con comandos de estado y prueba configurados...")
+    print("🤖 Bot con control de cambios de clima configurado...")
     app.run_polling()
 
 if __name__ == "__main__":
