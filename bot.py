@@ -34,7 +34,7 @@ MENSAJE_REGLAS = (
     "📜 *Reglas del Grupo*:\n\n"
     "1️⃣ Mantén el respeto hacia todos los miembros.\n"
     "2️⃣ No compartas enlaces de spam o contenido no solicitado.\n"
-    "3️⃣ Usa los canales or temas adecuados para cada conversación.\n\n"
+    "3️⃣ Usa los canales o temas adecuados para cada conversación.\n\n"
     "¡Disfruta tu estancia y participa con confianza! 🤖"
 )
 
@@ -60,7 +60,6 @@ WEATHER_CODES = {
     95: "🌩 Tormenta eléctrica"
 }
 
-# Códigos de lluvia corregidos para incluir lloviznas (51, 53, 55)
 CODIGOS_LLUVIA = [51, 53, 55, 61, 63, 65, 80, 81, 82, 95]
 
 def obtener_teclado_principal():
@@ -351,7 +350,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lat, lon, ubicacion_oficial = obtener_coordenadas(texto)
         if lat:
             SUSCRIPTORES_CLIMA[user_id] = ubicacion_oficial
-            # Al configurar de nuevo, limpiamos su memoria climática previa para un registro limpio
             if user_id in ULTIMO_CLIMA_USUARIO:
                 del ULTIMO_CLIMA_USUARIO[user_id]
             await update.message.reply_text(
@@ -420,14 +418,12 @@ def verificar_lluvia_background(application):
                 
                 ultimo_code = ULTIMO_CLIMA_USUARIO.get(user_id)
 
-                # Si es la primera vez que se evalúa este usuario, guardamos el estado sin alertar
                 if ultimo_code is None:
                     ULTIMO_CLIMA_USUARIO[user_id] = code
                     continue
 
-                # Si el código del clima cambió respecto a la última revisión
                 if code != ultimo_code:
-                    ULTIMO_CLIMA_USUARIO[user_id] = code  # Actualizamos el estado guardado
+                    ULTIMO_CLIMA_USUARIO[user_id] = code
 
                     if code in CODIGOS_LLUVIA:
                         mensaje_alerta = (
@@ -512,7 +508,6 @@ def main():
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # Registro de todos los CommandHandlers
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("ayuda", ayuda_command))
     app.add_handler(CommandHandler("calc", calc_command))
@@ -539,12 +534,11 @@ def main():
     app.bot_data["loop"] = loop
 
     scheduler = BackgroundScheduler()
-    # Verificación de lluvia y clima cada 10 minutos
     scheduler.add_job(lambda: verificar_lluvia_background(app), 'interval', minutes=10)
     scheduler.add_job(lambda: verificar_sismos_background(app), 'interval', minutes=10)
     scheduler.start()
 
-    print("🤖 Bot con control de cambios de clima configurado...")
+    print("🤖 Bot con alertas independientes configurado correctamente...")
     app.run_polling()
 
 if __name__ == "__main__":
