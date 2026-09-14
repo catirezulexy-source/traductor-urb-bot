@@ -172,10 +172,10 @@ def obtener_teclado_principal():
     teclado = [
         [KeyboardButton("🔢 /calc"), KeyboardButton("🔑 /pass")],
         [KeyboardButton("📝 /nota"), KeyboardButton("🌤 /tiempo")],
-        [KeyboardButton("📲 /wa"), KeyboardButton("🆔 /id")],
-        [KeyboardButton("🔔 /alerta_lluvia"), KeyboardButton("🚨 /alerta_sismo")],
-        [KeyboardButton("📊 /estado"), KeyboardButton("⚡ /probar_alerta")],
-        [KeyboardButton("📋 /ayuda")]
+        [KeyboardButton("📅 /manana"), KeyboardButton("📲 /wa")],
+        [KeyboardButton("🆔 /id"), KeyboardButton("🔔 /alerta_lluvia")],
+        [KeyboardButton("🚨 /alerta_sismo"), KeyboardButton("📊 /estado")],
+        [KeyboardButton("⚡ /probar_alerta"), KeyboardButton("📋 /ayuda")]
     ]
     return ReplyKeyboardMarkup(teclado, resize_keyboard=True)
 
@@ -215,11 +215,46 @@ def obtener_clima_real(ciudad):
                 return f"❌ Error de conexión al consultar el clima.", None, None
     return f"❌ Error de conexión al consultar el clima.", None, None
 
+def obtener_pronostico_manana(ciudad):
+    try:
+        lat, lon, nombre_lugar = obtener_coordenadas(ciudad)
+        if not lat:
+            return f"❌ No se encontró la ciudad/país: *{ciudad}*"
+        
+        url_forecast = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=weathercode,precipitation_probability_max&timezone=auto"
+        req = urllib.request.Request(url_forecast, headers={'User-Agent': 'Mozilla/5.0'})
+        
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+            
+        daily = data.get("daily", {})
+        dias = daily.get("time", [])
+        codes = daily.get("weathercode", [])
+        prob_lluvia = daily.get("precipitation_probability_max", [])
+        
+        if len(dias) > 1:
+            fecha_mañana = dias[1]
+            code_mañana = codes[1]
+            prob = prob_lluvia[1] if len(prob_lluvia) > 1 else 0
+            
+            condicion = WEATHER_CODES.get(code_mañana, "🌤 Clima variable")
+            
+            reporte = (
+                f"📅 *Pronóstico para mañana en {nombre_lugar}* (`{fecha_mañana}`):\n\n"
+                f"• Estado: {condicion}\n"
+                f"• Probabilidad de lluvia: `{prob}%`"
+            )
+            return reporte
+        else:
+            return "❌ No se pudo obtener el pronóstico extendido."
+    except Exception:
+        return "❌ Error de conexión al consultar el pronóstico para mañana."
+
 # --- FUNCIONES DE COMANDOS ---
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    registrar_usuario_db(user_id)  # Registra automáticamente al usuario
+    registrar_usuario_db(user_id)
     mensaje = (
         "🤖 *Bienvenido al Menú Principal*\n\n"
         "Toca cualquiera de los botones de abajo o usa `/ayuda` para ver la lista de comandos disponibles."
@@ -251,6 +286,7 @@ async def ayuda_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔑 `/pass` - Generar contraseña segura\n"
         "📝 `/nota` - Guardar y consultar notas\n"
         "🌤 `/tiempo` - Consultar pronóstico del tiempo\n"
+        "📅 `/manana` - Pronóstico de lluvia para mañana\n"
         "📲 `/wa` - Generar enlace de WhatsApp\n"
         "🆔 `/id` - Ver ID y perfil de Telegram\n"
         "🔔 `/alerta_lluvia` - Activar avisos automáticos de lluvia\n"
@@ -314,6 +350,14 @@ async def tiempo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ESTADOS_USUARIO[user_id] = "esperando_tiempo"
     await update.message.reply_text("🌤 *Pronóstico del tiempo*\nEscribe el nombre de la ciudad o país para consultar el clima real:", parse_mode="Markdown")
+
+async def manana_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    ESTADOS_USUARIO[user_id] = "esperando_manana"
+    await update.message.reply_text(
+        "📅 *Pronóstico para Mañana*\nEscribe el nombre de la ciudad o país para saber si lloverá mañana:",
+        parse_mode="Markdown"
+    )
 
 async def wa_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -404,6 +448,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(reporte_clima, parse_mode="Markdown", reply_markup=obtener_teclado_principal())
         return
 
+    elif estado == "esperando_manana":
+        ESTADOS_USUARIO[user_id] = None
+        reporte_manana = obtener_pronostico_manana(texto)
+        await update.message.reply_text(reporte_manana, parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+        return
+
     elif estado == "esperando_alerta_lluvia":
         ESTADOS_USUARIO[user_id] = None
         lat, lon, ubicacion_oficial = obtener_coordenadas(texto)
@@ -447,6 +497,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     elif texto in ["🌤 /tiempo", "/tiempo"]:
         await tiempo_command(update, context)
+        return
+    elif texto in ["📅 /manana", "/manana"]:
+        await manana_command(update, context)
         return
     elif texto in ["📲 /wa", "/wa"]:
         await wa_command(update, context)
@@ -563,6 +616,7 @@ def main():
     app.add_handler(CommandHandler("pass", pass_command))
     app.add_handler(CommandHandler("nota", nota_command))
     app.add_handler(CommandHandler("tiempo", tiempo_command))
+    app.add_handler(CommandHandler("manana", manana_command))
     app.add_handler(CommandHandler("wa", wa_command))
     app.add_handler(CommandHandler("id", id_command))
     app.add_handler(CommandHandler("alerta_lluvia", alerta_lluvia_command))
@@ -583,11 +637,12 @@ def main():
     app.bot_data["loop"] = loop
 
     scheduler = BackgroundScheduler()
-    scheduler.add_job(lambda: verificar_lluvia_background(app), 'interval', minutes=10)
-    scheduler.add_job(lambda: verificar_sismos_background(app), 'interval', minutes=10)
+    # Intervalo cambiado de 10 a 5 minutos como solicitaste:
+    scheduler.add_job(lambda: verificar_lluvia_background(app), 'interval', minutes=5)
+    scheduler.add_job(lambda: verificar_sismos_background(app), 'interval', minutes=5)
     scheduler.start()
 
-    print("🤖 Bot completo con SQLite y contador de usuarios iniciado...")
+    print("🤖 Bot completo con pronóstico para mañana, SQLite y temporizador de 5 minutos iniciado...")
     app.run_polling()
 
 if __name__ == "__main__":
