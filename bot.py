@@ -23,7 +23,11 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app_flask.run(host="0.0.0.0", port=port)
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+# --- CONFIGURACIÓN DE TOKEN COMPATIBLE (RAILWAY / ORACLE) ---
+# 1. Intentará leer la variable de entorno (para Railway).
+# 2. Si no existe, usará el token que dejes escrito aquí abajo (para Oracle).
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN") or "8805767451:AAEqvJW_hBBtiJROciMD7-R"
+
 TU_ID_DE_ADMINISTRADOR = 7694542888  # Tu ID real de Telegram integrado
 
 ESTADOS_USUARIO = {}
@@ -637,7 +641,6 @@ def main():
     app.bot_data["loop"] = loop
 
     scheduler = BackgroundScheduler()
-    # Intervalo cambiado de 10 a 5 minutos como solicitaste:
     scheduler.add_job(lambda: verificar_lluvia_background(app), 'interval', minutes=5)
     scheduler.add_job(lambda: verificar_sismos_background(app), 'interval', minutes=5)
     scheduler.start()
