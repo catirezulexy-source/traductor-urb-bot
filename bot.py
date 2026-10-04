@@ -243,16 +243,18 @@ def obtener_pronostico_manana(ciudad):
 def traducir_texto(texto, idioma_destino="es"):
     try:
         texto_encoded = urllib.parse.quote(texto)
-        url = f"https://api.mymemory.translated.net/get?q={texto_encoded}&langpair=auto|{idioma_destino}"
+        # Usamos 'en|es' para evitar que la API falle por el uso de 'auto'
+        url = f"https://api.mymemory.translated.net/get?q={texto_encoded}&langpair=en|{idioma_destino}"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
         traduccion = data.get("responseData", {}).get("translatedText", "")
-        if traduccion and "MYMEMORY WARNING" not in traduccion.upper():
+        
+        if traduccion and "MYMEMORY WARNING" not in traduccion.upper() and "NO ES UN CÓDIGO" not in traduccion.upper():
             return traduccion
     except Exception:
         pass
-    return None
+    return texto
 
 # --- FUNCIONES DE COMANDOS ---
 
