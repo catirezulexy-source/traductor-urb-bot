@@ -151,7 +151,7 @@ WEATHER_CODES = {
     3: "☁️ Nublado", 45: "🌫 Niebla", 48: "🌫 Niebla con escarcha",
     51: "🌦 Llovizna ligera", 53: "🌦 Llovizna moderada", 55: "🌦 Llovizna densa",
     61: "🌧 Lluvia ligera", 63: "🌧 Lluvia moderada", 65: "🌧 Lluvia fuerte",
-    71: "❄️ Nieve ligera", 73: "❄️ Nieve moderada", 75: "❄️ Nieve fuerte",
+    71: "❄️ Nieve ligera", 73: "❄️ Nieve moderada", 75: "❄️️ Nieve fuerte",
     80: "🌧 Chubascos ligeros", 81: "🌧 Chubascos moderados", 82: "🌧 Chubascos violentos",
     95: "🌩 Tormenta eléctrica"
 }
@@ -279,7 +279,7 @@ async def ayuda_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📅 `/manana` - Pronóstico de lluvia para mañana\n"
         "📲 `/wa` - Generar enlace de WhatsApp\n"
         "🆔 `/id` - Ver ID y perfil de Telegram\n"
-        "🔔 `/alerta_lluvia` - Activar avisos automáticos de lluvia\n"
+        "🔔 `/alerta_lluvia` - Activar avisos de despejado/lluvia\n"
         "🚨 `/alerta_sismo` - Activar avisos automáticos de sismos\n"
         "📊 `/estado` - Ver tus alertas configuradas\n"
         "⚡ `/probar_alerta` - Enviar una alerta de prueba\n"
@@ -297,7 +297,7 @@ async def estado_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     mensaje = (
         "📊 *Estado de tus Alertas Automáticas*\n\n"
-        f"🌧 *Alerta de Lluvia y Despejado:* `{clima_activo}`\n"
+        f"🌧 *Alerta de Clima (Despejado/Lluvia):* `{clima_activo}`\n"
         f"🚨 *Alerta de Sismos:* `{sismo_activo}`\n\n"
         "Si deseas cambiarlas, vuelve a usar `/alerta_lluvia` o `/alerta_sismo`."
     )
@@ -377,8 +377,8 @@ async def alerta_lluvia_command(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = update.effective_user.id
     ESTADOS_USUARIO[user_id] = "esperando_alerta_lluvia"
     await update.message.reply_text(
-        "🔔 *Configurar Alerta Automática*\n\n"
-        "Escribe el nombre de ciudad para avisarte cuando esté **despejado** o comience a **llover**:",
+        "🔔 *Configurar Alerta de Clima*\n\n"
+        "Escribe el nombre de tu ciudad para avisarte cuando esté **despejado** o comience a **llover**:",
         parse_mode="Markdown"
     )
 
@@ -451,7 +451,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             guardar_clima_db(user_id, ubicacion_oficial)
             if user_id in ULTIMO_CLIMA_USUARIO:
                 del ULTIMO_CLIMA_USUARIO[user_id]
-            await update.message.reply_text(f"✅ *¡Alerta activada!*\nTe avisaré cuando esté despejado o llueva en *{ubicacion_oficial}*.", parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+            await update.message.reply_text(f"✅ *¡Alerta activada!*\nTe avisaré cuando esté despejado o comience a llover en *{ubicacion_oficial}*.", parse_mode="Markdown", reply_markup=obtener_teclado_principal())
         else:
             await update.message.reply_text("❌ No pude verificar esa ciudad. Inténtalo de nuevo con `/alerta_lluvia`.", reply_markup=obtener_teclado_principal())
         return
@@ -533,11 +533,11 @@ def verificar_lluvia_background(application):
                     ULTIMO_CLIMA_USUARIO[user_id] = code
                     continue
                 
-                # Evaluamos solo si el clima cambió
+                # Solo avisa si cambia el estado
                 if code != ultimo_code:
                     ULTIMO_CLIMA_USUARIO[user_id] = code
                     
-                    # Notificar únicamente si está despejado (0 o 1) o si hay lluvia
+                    # Notificar solo si está despejado (0 o 1) o si hay lluvia
                     if code == 0 or code == 1:
                         msg = f"☀️ *¡El cielo ahora está despejado!* ☀️\n\nEl clima en *{ubicacion_oficial}* cambió a: *{WEATHER_CODES.get(code)}*."
                         await application.bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
