@@ -151,7 +151,7 @@ WEATHER_CODES = {
     3: "☁️ Nublado", 45: "🌫 Niebla", 48: "🌫 Niebla con escarcha",
     51: "🌦 Llovizna ligera", 53: "🌦 Llovizna moderada", 55: "🌦 Llovizna densa",
     61: "🌧 Lluvia ligera", 63: "🌧 Lluvia moderada", 65: "🌧 Lluvia fuerte",
-    71: "❄️ Nieve ligera", 73: "❄️ Nieve moderada", 75: "❄ Nieve fuerte",
+    71: "❄️ Nieve ligera", 73: "❄️️ Nieve moderada", 75: "❄ Nieve fuerte",
     80: "🌧 Chubascos ligeros", 81: "🌧 Chubascos moderados", 82: "🌧 Chubascos violentos",
     95: "🌩 Tormenta eléctrica"
 }
@@ -239,6 +239,20 @@ def obtener_pronostico_manana(ciudad):
             return "❌ No se pudo obtener el pronóstico extendido."
     except Exception:
         return "❌ Error de conexión al consultar el pronóstico para mañana."
+
+def traducir_texto(texto, idioma_destino="es"):
+    try:
+        texto_encoded = urllib.parse.quote(texto)
+        url = f"https://api.mymemory.translated.net/get?q={texto_encoded}&langpair=auto|{idioma_destino}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+        traduccion = data.get("responseData", {}).get("translatedText", "")
+        if traduccion and "MYMEMORY WARNING" not in traduccion.upper():
+            return traduccion
+    except Exception:
+        pass
+    return None
 
 # --- FUNCIONES DE COMANDOS ---
 
@@ -415,8 +429,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
+    chat_type = update.effective_chat.type
     user_id = update.effective_user.id
     texto = update.message.text.strip()
+
+    # Si el mensaje proviene de un Grupo, Supergrupo o Comentarios de Canal
+    if chat_type in ["group", "supergroup"]:
+        if texto.startswith("/"):
+            return  # Ignorar comandos escritos sin barra o que maneje otro handler
+        
+        # Traducir automáticamente el mensaje al español
+        traduccion = traducir_texto(texto, "es")
+        if traduccion and traduccion.lower() != texto.lower():
+            await update.message.reply_text(f"🌐 *Traducción:*\n{traduccion}", parse_mode="Markdown")
+        return
+
+    # --- LÓGICA PARA CHATS PRIVADOS ---
     estado = ESTADOS_USUARIO.get(user_id)
 
     if estado == "esperando_calc":
