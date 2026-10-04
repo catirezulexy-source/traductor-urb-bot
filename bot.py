@@ -7,8 +7,8 @@ import urllib.request
 import json
 import asyncio
 import sqlite3
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # --- CONFIGURACIÓN DE TOKEN ---
@@ -240,21 +240,9 @@ def obtener_pronostico_manana(ciudad):
     except Exception:
         return "❌ Error de conexión al consultar el pronóstico para mañana."
 
-def es_idioma_español(texto):
-    palabras_es = {"que", "de", "no", "a", "la", "el", "es", "en", "lo", "un", "por", "con", "para", "una", "su", "se", "y", "los", "las", "del", "al", "como", "más", "pero", "sus", "le", "ya", "o", "este", "esta", "está", "muy", "sin", "sobre", "también", "me", "mi", "mis", "tu", "tus", "él", "ella", "nosotros", "ellos", "ellas", "nos", "os", "te", "voy", "hacer", "bien", "ok"}
-    palabras = re.findall(r'\b\w+\b', texto.lower())
-    if not palabras:
-        return True
-    if len(palabras) <= 2:
-        return True
-    coincidencias = sum(1 for p in palabras if p in palabras_es)
-    ratio = coincidencias / len(palabras)
-    return ratio > 0.30
-
 def traducir_texto(texto, idioma_destino="es"):
     try:
         texto_encoded = urllib.parse.quote(texto)
-        # Usamos 'aut|es' para detección automática de CUALQUIER idioma de origen hacia el español
         url = f"https://api.mymemory.translated.net/get?q={texto_encoded}&langpair=aut|{idioma_destino}"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -436,6 +424,36 @@ async def bienvenida_nuevo_usuario(update: Update, context: ContextTypes.DEFAULT
         saludo = f"👋 ¡Bienvenido/a al grupo, {nombre}!\n\n{MENSAJE_REGLAS}"
         await update.message.reply_text(saludo, parse_mode="Markdown")
 
+# --- MANEJADOR DE CLIC EN EL BOTÓN DE TRADUCCIÓN ---
+async def boton_traduccion_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not query.message.reply_to_message:
+        await query.answer("❌ No se encontró el mensaje original.", show_alert=True)
+        return
+
+    texto_original = query.message.reply_to_message.text
+    
+    # Detectar idioma nativo del usuario que presionó el botón (ej: 'en', 'es', 'fr', 'hi', 'pt')
+    user_lang = update.effective_user.language_code or "es"
+    user_lang = user_lang.split("-")[0]
+
+    # Traducir automáticamente al idioma del usuario
+    traduccion = traducir_texto(texto_original, user_lang)
+
+    # Actualizar el mensaje del bot en el grupo con la traducción personalizada
+    nombre_usuario = update.effective_user.first_name or "Usuario"
+    nuevo_mensaje = (
+        f"🌐 *Traducción para {nombre_usuario}* (`{user_lang.upper()}`):\n\n"
+        f"📥 *Original:* > *{texto_original}*\n"
+        f"📤 *Traducido:* > *{traduccion}*"
+    )
+    try:
+        await query.message.edit_text(nuevo_mensaje, parse_mode="Markdown")
+    except Exception:
+        pass
+
 # --- MANEJADOR DE TEXTOS Y ESTADOS PENDIENTES ---
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -446,25 +464,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     texto = update.message.text.strip()
 
-    # 1. SI ES UN GRUPO O SUPERGRUPO
+    # 1. SI ES UN GRUPO O SUPERGRUPO (Mecanismo de Botón Interactivo sin Spam)
     if chat_type != "private":
         if texto.startswith("/"):
             return  # Ignorar comandos
         
-        # Si el mensaje ya está en español, no se procesa
-        if es_idioma_español(texto):
-            return
-        
-        traduccion = traducir_texto(texto, "es")
-        if traduccion and traduccion.lower() != texto.lower():
-            # Estilo elegante, vertical y alargado
-            mensaje_elegante = (
-                "🌐 ── *TRADUCCIÓN AUTOMÁTICA* ── 🌐\n\n"
-                f"📥 *Original:*\n> *{texto}*\n\n"
-                f"📤 *Español:*\n> *{traduccion}*\n\n"
-                "──────────────────────────────────"
-            )
-            await update.message.reply_text(mensaje_elegante, parse_mode="Markdown")
+        # Enviar un botón limpio para que cualquier usuario lo traduzca a su idioma al tocarlo
+        teclado_inline = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🌐 Traducir a mi idioma / Translate", callback_data="traducir_accion")]
+        ])
+        await update.message.reply_text(
+            "👇 *Mensaje detectado. Toca el botón para traducirlo a tu idioma:*",
+            parse_mode="Markdown",
+            reply_markup=teclado_inline
+        )
         return
 
     # --- 2. LÓGICA EXCLUSIVA PARA CHATS PRIVADOS ---
@@ -671,6 +684,9 @@ def main():
 
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bienvenida_nuevo_usuario))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Manejador del botón interactivo de traducción
+    app.add_handler(CallbackQueryHandler(boton_traduccion_callback, pattern="^traducir_accion$"))
 
     async def post_init(application):
         application.bot_data["loop"] = asyncio.get_running_loop()
