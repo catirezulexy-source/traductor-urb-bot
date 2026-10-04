@@ -619,7 +619,7 @@ def main():
     app.add_handler(CommandHandler("reglas", reglas_command))
 
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bienvenida_nuevo_usuario))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.ChatType.PRIVATE | filters.ChatType.GROUPS), handle_message))
 
     async def post_init(application):
         application.bot_data["loop"] = asyncio.get_running_loop()
@@ -636,4 +636,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
