@@ -151,7 +151,7 @@ WEATHER_CODES = {
     3: "☁️ Nublado", 45: "🌫 Niebla", 48: "🌫 Niebla con escarcha",
     51: "🌦 Llovizna ligera", 53: "🌦 Llovizna moderada", 55: "🌦 Llovizna densa",
     61: "🌧 Lluvia ligera", 63: "🌧 Lluvia moderada", 65: "🌧 Lluvia fuerte",
-    71: "❄️ Nieve ligera", 73: "❄️️ Nieve moderada", 75: "❄ Nieve fuerte",
+    71: "❄️ Nieve ligera", 73: "❄ Nieve moderada", 75: "❄ Nieve fuerte",
     80: "🌧 Chubascos ligeros", 81: "🌧 Chubascos moderados", 82: "🌧 Chubascos violentos",
     95: "🌩 Tormenta eléctrica"
 }
@@ -433,18 +433,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     texto = update.message.text.strip()
 
-    # Si el mensaje proviene de un Grupo, Supergrupo o Comentarios de Canal
-    if chat_type in ["group", "supergroup"]:
+    # 1. SI ES UN GRUPO, SUPERGRUPO O COMENTARIOS (Cualquier chat que NO sea privado)
+    if chat_type != "private":
         if texto.startswith("/"):
-            return  # Ignorar comandos escritos sin barra o que maneje otro handler
+            return  # Ignorar comandos
         
-        # Traducir automáticamente el mensaje al español
         traduccion = traducir_texto(texto, "es")
-        if traduccion and traduccion.lower() != texto.lower():
+        if traduccion:
             await update.message.reply_text(f"🌐 *Traducción:*\n{traduccion}", parse_mode="Markdown")
-        return
+        else:
+            await update.message.reply_text(f"🌐 *Traducción:*\n{texto}", parse_mode="Markdown")
+        return  # Impide estrictamente que pase a la lógica del menú privado
 
-    # --- LÓGICA PARA CHATS PRIVADOS ---
+    # --- 2. LÓGICA EXCLUSIVA PARA CHATS PRIVADOS ---
     estado = ESTADOS_USUARIO.get(user_id)
 
     if estado == "esperando_calc":
@@ -647,7 +648,7 @@ def main():
     app.add_handler(CommandHandler("reglas", reglas_command))
 
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bienvenida_nuevo_usuario))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.ChatType.PRIVATE | filters.ChatType.GROUPS), handle_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     async def post_init(application):
         application.bot_data["loop"] = asyncio.get_running_loop()
