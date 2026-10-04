@@ -2,19 +2,29 @@ import os
 import re
 import random
 import string
+import threading
 import urllib.parse
 import urllib.request
 import json
 import asyncio
 import sqlite3
+from flask import Flask
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from apscheduler.schedulers.background import BackgroundScheduler
 
-# --- CONFIGURACIÓN DE TOKEN ---
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN") or "8805767451:AAEqvJW_hBBtiJROciMD7-R4zPykRaraLWE"
+app_flask = Flask(__name__)
 
-TU_ID_DE_ADMINISTRADOR = 7694542888
+@app_flask.route('/')
+def home():
+    return "🤖 Bot Asistente con Base de Datos Activo."
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app_flask.run(host="0.0.0.0", port=port)
+
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+TU_ID_DE_ADMINISTRADOR = 7694542888  # Tu ID real de Telegram integrado
 
 ESTADOS_USUARIO = {}
 ULTIMO_CLIMA_USUARIO = {}
@@ -151,7 +161,7 @@ WEATHER_CODES = {
     3: "☁️ Nublado", 45: "🌫 Niebla", 48: "🌫 Niebla con escarcha",
     51: "🌦 Llovizna ligera", 53: "🌦 Llovizna moderada", 55: "🌦 Llovizna densa",
     61: "🌧 Lluvia ligera", 63: "🌧 Lluvia moderada", 65: "🌧 Lluvia fuerte",
-    71: "❄️ Nieve ligera", 73: "❄️ Nieve moderada", 75: "❄ Nieve fuerte",
+    71: "❄️ Nieve ligera", 73: "❄️ Nieve moderada", 75: "❄️ Nieve fuerte",
     80: "🌧 Chubascos ligeros", 81: "🌧 Chubascos moderados", 82: "🌧 Chubascos violentos",
     95: "🌩 Tormenta eléctrica"
 }
@@ -210,25 +220,25 @@ def obtener_pronostico_manana(ciudad):
         lat, lon, nombre_lugar = obtener_coordenadas(ciudad)
         if not lat:
             return f"❌ No se encontró la ciudad/país: *{ciudad}*"
-
+        
         url_forecast = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=weathercode,precipitation_probability_max&timezone=auto"
         req = urllib.request.Request(url_forecast, headers={'User-Agent': 'Mozilla/5.0'})
-
+        
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode())
-
+            
         daily = data.get("daily", {})
         dias = daily.get("time", [])
         codes = daily.get("weathercode", [])
         prob_lluvia = daily.get("precipitation_probability_max", [])
-
+        
         if len(dias) > 1:
             fecha_mañana = dias[1]
             code_mañana = codes[1]
             prob = prob_lluvia[1] if len(prob_lluvia) > 1 else 0
-
+            
             condicion = WEATHER_CODES.get(code_mañana, "🌤 Clima variable")
-
+            
             reporte = (
                 f"📅 *Pronóstico para mañana en {nombre_lugar}* (`{fecha_mañana}`):\n\n"
                 f"• Estado: {condicion}\n"
@@ -279,9 +289,9 @@ async def ayuda_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📅 `/manana` - Pronóstico de lluvia para mañana\n"
         "📲 `/wa` - Generar enlace de WhatsApp\n"
         "🆔 `/id` - Ver ID y perfil de Telegram\n"
-        "🔔 `/alerta_lluvia` - Activar avisos de despejado/lluvia\n"
+        "🔔 `/alerta_lluvia` - Activar avisos automáticos de lluvia\n"
         "🚨 `/alerta_sismo` - Activar avisos automáticos de sismos\n"
-        "📊 `/estado` - Ver tus alertas configuradas y clima actual\n"
+        "📊 `/estado` - Ver tus alertas configuradas\n"
         "⚡ `/probar_alerta` - Enviar una alerta de prueba\n"
         "📜 `/reglas` - Ver las reglas del grupo"
     )
@@ -292,19 +302,14 @@ async def estado_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c_db = obtener_clima_db(user_id)
     s_db = obtener_sismo_db(user_id)
 
-    if c_db:
-        reporte_clima, _, _ = obtener_clima_real(c_db)
-        clima_info = f"{reporte_clima}"
-    else:
-        clima_info = "🌤 *Alerta de Clima:* ❌ No configurada"
-
+    clima_activo = c_db if c_db else "❌ No configurada"
     sismo_activo = s_db["nombre"] if s_db else "❌ No configurada"
 
     mensaje = (
-        "📊 *Estado de tus Alertas y Clima Actual*\n\n"
-        f"{clima_info}\n\n"
+        "📊 *Estado de tus Alertas Automáticas*\n\n"
+        f"🌧 *Alerta de Lluvia:* `{clima_activo}`\n"
         f"🚨 *Alerta de Sismos:* `{sismo_activo}`\n\n"
-        "Si deseas cambiarlas, usa `/alerta_lluvia` o `/alerta_sismo`."
+        "Si deseas cambiarlas, vuelve a usar `/alerta_lluvia` o `/alerta_sismo`."
     )
     await update.message.reply_text(mensaje, parse_mode="Markdown", reply_markup=obtener_teclado_principal())
 
@@ -382,8 +387,8 @@ async def alerta_lluvia_command(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = update.effective_user.id
     ESTADOS_USUARIO[user_id] = "esperando_alerta_lluvia"
     await update.message.reply_text(
-        "🔔 *Configurar Alerta de Clima*\n\n"
-        "Escribe el nombre de tu ciudad para avisarte cuando esté **despejado** o comience a **llover**:",
+        "🔔 *Configurar Alerta Automática de Lluvia*\n\n"
+        "Escribe el nombre de ciudad para avisarte automáticamente si comienza a llover:",
         parse_mode="Markdown"
     )
 
@@ -456,7 +461,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             guardar_clima_db(user_id, ubicacion_oficial)
             if user_id in ULTIMO_CLIMA_USUARIO:
                 del ULTIMO_CLIMA_USUARIO[user_id]
-            await update.message.reply_text(f"✅ *¡Alerta activada!*\nTe avisaré cuando esté despejado o comience a llover en *{ubicacion_oficial}*.", parse_mode="Markdown", reply_markup=obtener_teclado_principal())
+            await update.message.reply_text(f"✅ *¡Alerta de lluvia activada y guardada!*\nTe avisaré si detecto precipitaciones en *{ubicacion_oficial}*.", parse_mode="Markdown", reply_markup=obtener_teclado_principal())
         else:
             await update.message.reply_text("❌ No pude verificar esa ciudad. Inténtalo de nuevo con `/alerta_lluvia`.", reply_markup=obtener_teclado_principal())
         return
@@ -526,7 +531,7 @@ def verificar_lluvia_background(application):
     suscriptores = obtener_todos_clima_db()
     if not suscriptores:
         return
-
+    
     async def enviar_alertas():
         for user_id, ciudad in list(suscriptores.items()):
             try:
@@ -537,18 +542,16 @@ def verificar_lluvia_background(application):
                 if ultimo_code is None:
                     ULTIMO_CLIMA_USUARIO[user_id] = code
                     continue
-                
                 if code != ultimo_code:
                     ULTIMO_CLIMA_USUARIO[user_id] = code
-                    
-                    if code == 0 or code == 1:
-                        msg = f"☀️ *¡El cielo ahora está despejado!* ☀️\n\nEl clima en *{ubicacion_oficial}* cambió a: *{WEATHER_CODES.get(code)}*."
+                    if code in CODIGOS_LLUVIA:
+                        msg = f"🌧 *¡Cambio de clima / Alerta de Lluvia!* 🌧\n\nEl clima en *{ubicacion_oficial}* cambió a: *{WEATHER_CODES.get(code)}*.\n¡Toma precauciones!"
                         await application.bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
-                    elif code in CODIGOS_LLUVIA:
-                        msg = f"🌧 *¡Alerta de Lluvia!* 🌧\n\nEl clima en *{ubicacion_oficial}* cambió a: *{WEATHER_CODES.get(code)}*.\n¡Toma precauciones!"
+                    else:
+                        msg = f"🌤 *Actualización del Clima*\n\nEl clima en *{ubicacion_oficial}* cambió a: *{WEATHER_CODES.get(code)}*."
                         await application.bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
             except Exception as e:
-                print(f"❌ Error en alerta de clima para {user_id}: {e}")
+                print(f"❌ Error en alerta de lluvia para {user_id}: {e}")
 
     loop = application.bot_data.get("loop")
     if loop and loop.is_running():
@@ -558,7 +561,7 @@ def verificar_sismos_background(application):
     suscriptores = obtener_todos_sismos_db()
     if not suscriptores:
         return
-
+    
     async def enviar_alertas_sismos():
         try:
             url_sismos = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.0_hour.geojson"
@@ -600,6 +603,10 @@ def verificar_sismos_background(application):
 # --- FUNCIÓN PRINCIPAL ---
 
 def main():
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start_command))
@@ -621,17 +628,21 @@ def main():
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bienvenida_nuevo_usuario))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_message))
 
-    async def post_init(application):
-        application.bot_data["loop"] = asyncio.get_running_loop()
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
-    app.post_init = post_init
+    app.bot_data["loop"] = loop
 
     scheduler = BackgroundScheduler()
+    # Intervalo cambiado de 10 a 5 minutos como solicitaste:
     scheduler.add_job(lambda: verificar_lluvia_background(app), 'interval', minutes=5)
     scheduler.add_job(lambda: verificar_sismos_background(app), 'interval', minutes=5)
     scheduler.start()
 
-    print("🤖 Bot iniciado y escuchando de forma continua...")
+    print("🤖 Bot completo con pronóstico para mañana, SQLite y temporizador de 5 minutos iniciado...")
     app.run_polling()
 
 if __name__ == "__main__":
