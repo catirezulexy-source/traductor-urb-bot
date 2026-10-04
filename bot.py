@@ -240,11 +240,22 @@ def obtener_pronostico_manana(ciudad):
     except Exception:
         return "❌ Error de conexión al consultar el pronóstico para mañana."
 
+def es_idioma_español(texto):
+    palabras_es = {"que", "de", "no", "a", "la", "el", "es", "en", "lo", "un", "por", "con", "para", "una", "su", "se", "y", "los", "las", "del", "al", "como", "más", "pero", "sus", "le", "ya", "o", "este", "esta", "está", "muy", "sin", "sobre", "también", "me", "mi", "mis", "tu", "tus", "él", "ella", "nosotros", "ellos", "ellas", "nos", "os", "te", "voy", "hacer", "bien", "ok"}
+    palabras = re.findall(r'\b\w+\b', texto.lower())
+    if not palabras:
+        return True
+    if len(palabras) <= 2:
+        return True
+    coincidencias = sum(1 for p in palabras if p in palabras_es)
+    ratio = coincidencias / len(palabras)
+    return ratio > 0.30
+
 def traducir_texto(texto, idioma_destino="es"):
     try:
         texto_encoded = urllib.parse.quote(texto)
-        # Usamos 'en|es' para evitar que la API falle por el uso de 'auto'
-        url = f"https://api.mymemory.translated.net/get?q={texto_encoded}&langpair=en|{idioma_destino}"
+        # Usamos 'aut|es' para detección automática de CUALQUIER idioma de origen hacia el español
+        url = f"https://api.mymemory.translated.net/get?q={texto_encoded}&langpair=aut|{idioma_destino}"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
@@ -435,17 +446,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     texto = update.message.text.strip()
 
-    # 1. SI ES UN GRUPO, SUPERGRUPO O COMENTARIOS (Cualquier chat que NO sea privado)
+    # 1. SI ES UN GRUPO O SUPERGRUPO
     if chat_type != "private":
         if texto.startswith("/"):
             return  # Ignorar comandos
         
+        # Si el mensaje ya está en español, no se procesa
+        if es_idioma_español(texto):
+            return
+        
         traduccion = traducir_texto(texto, "es")
-        if traduccion:
-            await update.message.reply_text(f"🌐 *Traducción:*\n{traduccion}", parse_mode="Markdown")
-        else:
-            await update.message.reply_text(f"🌐 *Traducción:*\n{texto}", parse_mode="Markdown")
-        return  # Impide estrictamente que pase a la lógica del menú privado
+        if traduccion and traduccion.lower() != texto.lower():
+            # Estilo elegante, vertical y alargado
+            mensaje_elegante = (
+                "🌐 ── *TRADUCCIÓN AUTOMÁTICA* ── 🌐\n\n"
+                f"📥 *Original:*\n> *{texto}*\n\n"
+                f"📤 *Español:*\n> *{traduccion}*\n\n"
+                "──────────────────────────────────"
+            )
+            await update.message.reply_text(mensaje_elegante, parse_mode="Markdown")
+        return
 
     # --- 2. LÓGICA EXCLUSIVA PARA CHATS PRIVADOS ---
     estado = ESTADOS_USUARIO.get(user_id)
